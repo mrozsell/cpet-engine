@@ -3695,7 +3695,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += '</div>'
 
         # ─── 3. STREFY TRENINGOWE ───
-        zone_colors = ['#22c55e','#84cc16','#eab308','#f97316','#ef4444']
+        zone_colors = ['#94a3b8','#3b82f6','#22c55e','#f97316','#ef4444']
         zone_names = ['Z1 Regeneracja','Z2 Baza tlenowa','Z3 Tempo','Z4 Pr\u00f3g','Z5 VO\u2082max']
         zone_feelings = [
             'Luz, rozmowa bez problemu',
@@ -3761,15 +3761,15 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\u26fd</span>Metabolizm lipid\u00f3w</div>
   <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
-    <div style="flex:1;min-width:160px;padding:12px;background:#f0fdf4;border-radius:10px;border-left:4px solid #16a34a;text-align:center;">
+    <div style="flex:1;min-width:160px;padding:12px;background:#fefce8;border-radius:10px;border-left:4px solid #eab308;text-align:center;">
       <div style="font-size:11px;color:#475569;font-weight:600;">FATmax</div>
-      <div style="font-size:28px;font-weight:700;color:#16a34a;">{_fatmax_gh:.0f} <span style="font-size:13px;font-weight:500;">g/h</span></div>
+      <div style="font-size:28px;font-weight:700;color:#ca8a04;">{_fatmax_gh:.0f} <span style="font-size:13px;font-weight:500;">g/h</span></div>
       <div style="font-size:10px;color:#64748b;">HR {_n(fatmax_hr,".0f")} bpm ({_n(fatmax_pct_vo2,".0f")}% VO\u2082max)</div>
       <div style="font-size:10px;color:#94a3b8;margin-top:2px;">Strefa: {_n(fatmax_zone_lo,".0f")}\u2013{_n(fatmax_zone_hi,".0f")} bpm</div>
     </div>
-    <div style="flex:1;min-width:160px;padding:12px;background:#fff7ed;border-radius:10px;border-left:4px solid #f59e0b;text-align:center;">
+    <div style="flex:1;min-width:160px;padding:12px;background:#eff6ff;border-radius:10px;border-left:4px solid #3b82f6;text-align:center;">
       <div style="font-size:11px;color:#475569;font-weight:600;">Crossover (CHO=FAT)</div>
-      <div style="font-size:28px;font-weight:700;color:#f59e0b;">{_cop_txt}</div>
+      <div style="font-size:28px;font-weight:700;color:#2563eb;">{_cop_txt}</div>
       <div style="font-size:10px;color:#64748b;">Powy\u017cej tego \u2014 dominuje glikogen</div>
     </div>
   </div>'''
@@ -3777,14 +3777,14 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             # Zone substrate table
             if zone_sub:
                 _zone_names = {'z1': 'Z1 Regeneracja', 'z2': 'Z2 Baza tlenowa', 'z3': 'Z3 Tempo', 'z4': 'Z4 Pr\u00f3g', 'z5': 'Z5 VO\u2082max'}
-                _zone_colors = {'z1': '#94a3b8', 'z2': '#22c55e', 'z3': '#eab308', 'z4': '#f97316', 'z5': '#ef4444'}
+                _zone_colors = {'z1': '#94a3b8', 'z2': '#3b82f6', 'z3': '#22c55e', 'z4': '#f97316', 'z5': '#ef4444'}
                 
                 h += '''<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;">
   <thead>
     <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
       <th style="padding:8px 6px;text-align:left;color:#475569;font-weight:600;">Strefa</th>
-      <th style="padding:8px 6px;text-align:center;color:#16a34a;font-weight:600;">\U0001f7e2 FAT g/h</th>
-      <th style="padding:8px 6px;text-align:center;color:#f59e0b;font-weight:600;">\U0001f7e1 CHO g/h</th>
+      <th style="padding:8px 6px;text-align:center;color:#eab308;font-weight:600;">\U0001f7e1 FAT g/h</th>
+      <th style="padding:8px 6px;text-align:center;color:#3b82f6;font-weight:600;">\U0001f535 CHO g/h</th>
       <th style="padding:8px 6px;text-align:center;color:#475569;font-weight:600;">FAT %</th>
       <th style="padding:8px 6px;text-align:center;color:#ef4444;font-weight:600;">\U0001f525 kcal/h</th>
     </tr>
@@ -3806,8 +3806,8 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                         _bar_col = '#16a34a' if _fat_pct_v >= 50 else ('#eab308' if _fat_pct_v >= 25 else '#ef4444')
                         h += f'''<tr style="border-bottom:1px solid #f1f5f9;">
       <td style="padding:8px 6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{_zc};margin-right:6px;"></span><b>{_zn}</b></td>
-      <td style="padding:8px 6px;text-align:center;color:#16a34a;font-weight:600;">{_fat_gh}</td>
-      <td style="padding:8px 6px;text-align:center;color:#f59e0b;font-weight:600;">{_cho_gh}</td>
+      <td style="padding:8px 6px;text-align:center;color:#eab308;font-weight:600;">{_fat_gh}</td>
+      <td style="padding:8px 6px;text-align:center;color:#3b82f6;font-weight:600;">{_cho_gh}</td>
       <td style="padding:8px 6px;text-align:center;">
         <div style="display:flex;align-items:center;gap:4px;justify-content:center;">
           <div style="width:40px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;"><div style="width:{_bar_w}%;height:100%;background:{_bar_col};border-radius:3px;"></div></div>
