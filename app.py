@@ -11,6 +11,7 @@ import tempfile
 import os
 import re
 from datetime import datetime
+from cortex_xml_parser import parse_cortex_xml
 
 # ════════════════════════════════════════════════════════
 # LAZY ENGINE LOADING (deferred to avoid HF health check timeout)
@@ -126,11 +127,11 @@ with st.sidebar:
     st.markdown("# 🫁 CPET Engine")
     st.markdown("---")
 
-    st.markdown("### 📁 Plik CSV")
+    st.markdown("### 📁 Plik CPET")
     uploaded_file = st.file_uploader(
-        "Wgraj plik CPET (.csv)",
-        type=["csv"],
-        help="Plik z danymi breath-by-breath z ergospirometru"
+        "Wgraj plik CPET (.csv lub .xml)",
+        type=["csv", "xml"],
+        help="CSV z danymi breath-by-breath lub oryginalny XML z Cortex MetaSoft"
     )
 
     st.markdown("---")
@@ -144,6 +145,23 @@ with st.sidebar:
 
     auto_info = {}
     if uploaded_file is not None:
+        # ── XML → CSV conversion (Cortex MetaSoft) ──
+        _is_xml = uploaded_file.name.lower().endswith('.xml')
+        if _is_xml:
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.xml', delete=False, mode='wb') as _xf:
+                    _xf.write(uploaded_file.getvalue())
+                    _xml_tmp = _xf.name
+                _csv_tmp = parse_cortex_xml(_xml_tmp, tempfile.gettempdir())
+                # Re-read as CSV for preview and downstream processing
+                uploaded_file = open(_csv_tmp, 'rb')
+                uploaded_file.name = os.path.basename(_csv_tmp)
+                st.success("✅ XML Cortex → CSV skonwertowany automatycznie")
+                os.unlink(_xml_tmp)
+            except Exception as e:
+                st.error(f"❌ Błąd parsowania XML: {e}")
+                st.stop()
+
         try:
             df_preview = pd.read_csv(uploaded_file, nrows=2)
             uploaded_file.seek(0)
