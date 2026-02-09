@@ -1023,6 +1023,11 @@ def compute_profile_scores(ct):
     except: pctile_val = 50
     
     _is_athlete = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
+    # Also treat as athlete if population fitness is high (SUPERIOR/EXCELLENT or ≥80th pctile)
+    # A 95th-percentile person IS athletic even if sport-specific class is RECREATIONAL
+    _pop_class = e15.get('vo2_class_pop', '')
+    if not _is_athlete and (pctile_val >= 80 or _pop_class in ('SUPERIOR', 'EXCELLENT')):
+        _is_athlete = True
     # Sport context label for human-readable texts
     _sport_label_map = {'ELITE': 'elitarny', 'SUB_ELITE': 'subelitarny', 'COMPETITIVE': 'zawodniczy', 'TRAINED': 'wytrenowany', 'RECREATIONAL': 'rekreacyjny', 'UNTRAINED': 'początkujący'}
     _sport_lbl = _sport_label_map.get(sport_class_raw, '')
