@@ -1108,12 +1108,15 @@ def compute_profile_scores(ct):
     
     # RE-based scoring for running (lower RE = better economy)
     if modality == 'run' and _re_v and _re_v > 0:
-        if _re_v < 175: _econ_sc = 95
-        elif _re_v < 185: _econ_sc = 80 + (185 - _re_v) / 10 * 15
-        elif _re_v < 200: _econ_sc = 60 + (200 - _re_v) / 15 * 20
-        elif _re_v < 215: _econ_sc = 40 + (215 - _re_v) / 15 * 20
-        elif _re_v < 235: _econ_sc = 20 + (235 - _re_v) / 20 * 20
-        else: _econ_sc = max(5, 20 - (_re_v - 235) / 20 * 15)
+        if _re_v < 175: _re_sc = 95
+        elif _re_v < 185: _re_sc = 80 + (185 - _re_v) / 10 * 15
+        elif _re_v < 200: _re_sc = 60 + (200 - _re_v) / 15 * 20
+        elif _re_v < 215: _re_sc = 40 + (215 - _re_v) / 15 * 20
+        elif _re_v < 235: _re_sc = 20 + (235 - _re_v) / 20 * 20
+        else: _re_sc = max(5, 20 - (_re_v - 235) / 20 * 15)
+        # Blend with GAIN_z when available (RE 60% + GAIN_z 40%)
+        _gz_sc = max(0, min(100, 50 + _gz * 22)) if _gz else None
+        _econ_sc = (0.6 * _re_sc + 0.4 * _gz_sc) if _gz_sc is not None else _re_sc
         _econ_label = 'Ekonomia biegu'
         _econ_lim = f'Ekonomia biegu do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
         _econ_sup = f'Doskonała ekonomia biegu (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba.'
@@ -3767,7 +3770,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 'TRAINED': 'Wytrenowany', 'RECREATIONAL': 'Amator', 'UNTRAINED': 'Początkujący'
             }
             try:
-                from engines import E15_VO2max_Norms
+                from engines import Engine_E15_Normalization as E15_VO2max_Norms
                 _tbl = E15_VO2max_Norms.VO2MAX_SPORT_FEMALE if _sex_key == 'female' else E15_VO2max_Norms.VO2MAX_SPORT_MALE
                 _ranges = _tbl.get(_mod_key, _tbl.get('default', []))
             except:
