@@ -3652,40 +3652,17 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 </div>'''
 
         # ─── 2. PROFIL WYDOLNOŚCI + LIMITER / SUPERMOC ───
-        # Gauges row
-        _gauge_keys = [
-            ('vo2max', 'Wydolno\u015b\u0107', 'VO\u2082max'),
-            ('vt2', 'Pr\u00f3g', 'VT2'),
-            ('vt1', 'Baza', 'VT1'),
-            ('economy', 'Ekonomia', 'Ruch'),
-            ('ventilation', 'Oddychanie', 'VE/VCO\u2082'),
-            ('cardiac', 'Serce', 'O\u2082 pulse'),
-            ('recovery', 'Regeneracja', 'HRR'),
-        ]
-        _gauge_html = ''
-        for _gk, _gl, _gs in _gauge_keys:
-            _gv = _cat.get(_gk, {}).get('score', 0) or 0
-            _is_lim = (_gk == _limiter_key)
-            _is_sup = (_gk == _super_key)
-            _border = 'border:2px solid #ef4444;border-radius:50%;' if _is_lim else ('border:2px solid #16a34a;border-radius:50%;' if _is_sup else '')
-            _gauge_html += f'<div style="{_border}padding:2px;">{gauge_svg(min(100, _gv), _gl, subtitle=_gs)}</div>'
-        
-        # Also add substrate & breathing if available
-        for _xk, _xl, _xs in [('substrate', 'T\u0142uszcze', 'FATmax'), ('breathing', 'Oddech', 'BF')]:
-            if _xk in _cat:
-                _xv = _cat[_xk].get('score', 0) or 0
-                _is_lim = (_xk == _limiter_key)
-                _is_sup = (_xk == _super_key)
-                _border = 'border:2px solid #ef4444;border-radius:50%;' if _is_lim else ('border:2px solid #16a34a;border-radius:50%;' if _is_sup else '')
-                _gauge_html += f'<div style="{_border}padding:2px;">{gauge_svg(min(100, _xv), _xl, subtitle=_xs)}</div>'
-        
         h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci</div>
-  <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:6px;text-align:center;">
-    {_gauge_html}
+  <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:8px;text-align:center;">
+    {gauge_svg(min(100, _cat.get('vo2max',{{}}).get('score',0) or pctile_val), 'Wydolno\u015b\u0107', subtitle='VO\u2082max')}
+    {gauge_svg(min(100, _cat.get('vt2',{{}}).get('score',0) or _vt2_score), 'Pr\u00f3g', subtitle='VT2')}
+    {gauge_svg(min(100, _cat.get('ventilation',{{}}).get('score',0) or _vent_score), 'Oddychanie', subtitle='Wentylacja')}
+    {gauge_svg(min(100, _cat.get('economy',{{}}).get('score',0) or _econ_score), 'Ekonomia', subtitle='Ruch')}
+    {gauge_svg(min(100, _cat.get('recovery',{{}}).get('score',0) or _hrr_score), 'Regeneracja', subtitle='HRR')}
   </div>
-  <div style="text-align:center;margin-top:8px;font-size:11px;color:#94a3b8;">
-    Skala 0\u2013100 | <span style="color:#16a34a;">\u25cf</span> supermoc <span style="color:#ef4444;">\u25cf</span> limiter | &gt;70 = bardzo dobrze | &gt;85 = poziom sportowy
+  <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
+    Ka\u017cdy wska\u017anik w skali 0\u2013100. Powy\u017cej 70 = bardzo dobrze. Powy\u017cej 85 = poziom sportowy.
   </div>'''
         
         # ── SUPERMOC + LIMITER cards ──
