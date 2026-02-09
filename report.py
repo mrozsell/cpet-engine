@@ -1133,18 +1133,31 @@ def compute_profile_scores(ct):
     else:
         # GAIN_z-based for cycling or when RE unavailable
         _econ_sc = max(0, min(100, 50 + _gz * 22)) if _gz else 50
-        _econ_label = 'Ekonomia ruchu'
-        _econ_lim = f'Ekonomia ruchu poniżej przeciętnej (z-score: {_gz:+.1f}){_re_info}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
-        _econ_sup = f'Doskonała ekonomia ruchu (z-score: {_gz:+.1f}){_re_info} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba. To jak oszczędny silnik w wyścigówce.'
+        _mod_names = {'bike':'pedałowania','rowing':'wioślarstwa','swimming':'pływania','triathlon':'ruchu','crossfit':'ruchu','hyrox':'ruchu'}
+        _mod_name = _mod_names.get(modality, 'ruchu')
+        _mod_tips = {'bike':'Praca nad kadencją, pozycją i siłą specjalną poprawi efektywność.',
+                     'rowing':'Trening techniczny wioślarstwa i siła specjalna poprawią efektywność.',
+                     'swimming':'Drills techniczne i trening siły specyficznej poprawią efektywność.'}
+        _mod_tip = _mod_tips.get(modality, 'Trening techniczny i siłowy poprawi efektywność.')
+        _econ_label = f'Ekonomia {_mod_name}'
+        _econ_lim = f'Ekonomia {_mod_name} poniżej przeciętnej (z-score: {_gz:+.1f}){_re_info}. {_mod_tip}'
+        _econ_sup = f'Doskonała ekonomia {_mod_name} (z-score: {_gz:+.1f}){_re_info} — Twój organizm zużywa mniej energii na danym obciążeniu niż przeciętna osoba.'
     
     _econ_sc = max(0, min(100, _econ_sc))
+    _econ_tip_map = {
+        'run': 'Plyometria + trening siłowy + technika biegu',
+        'bike': 'Kadencja + siła specjalna + pozycja na rowerze',
+        'swimming': 'Technika + drills + trening paddles',
+        'rowing': 'Technika wioślarstwa + siła + rate control',
+    }
+    _econ_tip = _econ_tip_map.get(modality, 'Trening techniczny + siła specjalna')
     _cat['economy'] = {
         'score': _econ_sc,
         'label': _econ_label,
         'icon': '⚙️',
         'limiter_text': _econ_lim,
         'super_text': _econ_sup,
-        'tip': 'Plyometria + trening siłowy + technika'
+        'tip': _econ_tip
     }
     
     # ── 5. VENTILATORY EFFICIENCY ──
@@ -4093,34 +4106,28 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             _lim_key_map = {
                 'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
                 'vt2': 'HIGH_BASE_LOW_THRESHOLD',
-                'vt1': 'HIGH_BASE_LOW_THRESHOLD',
+                'vt1': 'LOW_BASE',
                 'economy': 'ECONOMY_LIMITER',
-                'ventilation': 'HIGH_THRESHOLDS_LOW_CEILING',
-                'cardiac': 'HIGH_THRESHOLDS_LOW_CEILING',
-                'recovery': 'RECOVERY_DEFICIT',
-                'substrate': 'FAT_METABOLISM',
-                'breathing': 'HIGH_THRESHOLDS_LOW_CEILING',
+                'ventilation': 'VENTILATORY_LIMITER',
+                'cardiac': 'CARDIAC_LIMITER',
+                'recovery': 'RECOVERY_LIMITER',
+                'substrate': 'SUBSTRATE_LIMITER',
+                'breathing': 'VENTILATORY_LIMITER',
             }
             try:
                 from e20_training_decision import PhysioSnapshot, TrainingProfile, score_limiters, _scale_session, SPORT_CLASS_RANK
-                # Build engine results dict from canon_table _eXX_raw
                 _e20_results = {}
                 for _eid in ['E00','E01','E02','E03','E04','E05','E06','E07','E08','E09','E10','E11','E12','E13','E14','E15','E16','E17','E19']:
                     _e20_results[_eid] = ct.get('_' + _eid.lower() + '_raw', {})
                 _e20_results['_performance_context'] = ct.get('_performance_context', {})
                 _e20_snap = PhysioSnapshot.from_results(_e20_results, None)
                 _e20_snap.zones = zones_data
-                _e20_profile = TrainingProfile(modality=ct.get('_prot_modality','run'))
-                _e20_limiters = score_limiters(_e20_snap, _e20_profile)
+                _e20_mod = ct.get('_prot_modality', 'run')
+                _e20_profile = TrainingProfile(modality=_e20_mod)
                 _sc_rank = SPORT_CLASS_RANK.get(_e20_snap.sport_class, 1)
                 _lim_type = _lim_key_map.get(_limiter_key, 'HIGH_BASE_LOW_THRESHOLD')
-                _gc_session = _scale_session('KEY_1', _e20_snap, _sc_rank, _lim_type)
-                if _limiter_key == 'economy':
-                    _gc_session = _scale_session('KEY_2', _e20_snap, _sc_rank, 'ECONOMY_LIMITER')
-                elif _limiter_key == 'substrate':
-                    _gc_session = f"FATmax Z2 long run: 60-90 min @ HR {zones_data.get('z2',{}).get('hr_low','?')}-{zones_data.get('z2',{}).get('hr_high','?')} (na czczo lub low-carb)"
-                elif _limiter_key == 'recovery':
-                    _gc_session = f"Recovery Z1: 20-30 min @ HR < {zones_data.get('z1',{}).get('hr_high','?')} + rozciąganie + oddychanie 4-7-8"
+                # Use KEY_1 (primary session) for GameChanger
+                _gc_session = _scale_session('KEY_1', _e20_snap, _sc_rank, _lim_type, modality=_e20_mod)
             except Exception:
                 _gc_session = _limiter.get('tip', '')
             
