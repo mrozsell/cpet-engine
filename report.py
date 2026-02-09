@@ -3500,8 +3500,8 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 'score': _sub_sc,
                 'label': 'Spalanie t\u0142uszcz\u00f3w',
                 'icon': '\U0001f525',
-                'limiter_text': f'Metabolizm t\u0142uszczowy ograniczony (FATmax: {_fat_v:.2f} g/min' + (f', crossover przy {_cop_v:.0f}% VO\u2082' if _cop_v < 55 else '') + '). Wczesna zale\u017cno\u015b\u0107 od glikogenu skraca dystans. Wi\u0119cej trening\u00f3w Z2 i strategia \u017cywieniowa pomog\u0105.',
-                'super_text': f'Doskona\u0142y metabolizm t\u0142uszczowy (FATmax: {_fat_v:.2f} g/min przy {_fat_pct:.0f}% VO\u2082max) \u2014 Tw\u00f3j organizm \u015bwietnie spala t\u0142uszcze, co daje przewag\u0119 na d\u0142ugich dystansach.',
+                'limiter_text': f'Metabolizm t\u0142uszczowy ograniczony (FATmax: {_fat_v * 60:.0f} g/h' + (f', crossover przy {_cop_v:.0f}% VO\u2082' if _cop_v < 55 else '') + '). Wczesna zale\u017cno\u015b\u0107 od glikogenu skraca dystans. Wi\u0119cej trening\u00f3w Z2 i strategia \u017cywieniowa pomog\u0105.',
+                'super_text': f'Doskona\u0142y metabolizm t\u0142uszczowy (FATmax: {_fat_v * 60:.0f} g/h przy {_fat_pct:.0f}% VO\u2082max) \u2014 Tw\u00f3j organizm \u015bwietnie spala t\u0142uszcze, co daje przewag\u0119 na d\u0142ugich dystansach.',
                 'tip': 'D\u0142ugie Z2 + periodyzacja w\u0119glowodan\u00f3w'
             }
         
@@ -3652,7 +3652,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 </div>'''
 
         # ─── 2. PROFIL WYDOLNOŚCI + LIMITER / SUPERMOC ───
-        _g_vo2 = _cat.get('vo2max', {}).get('score', 0) or pctile_val
+        _g_vo2 = min(100, _overall)
         _g_vt2 = _cat.get('vt2', {}).get('score', 0) or _vt2_score
         _g_vent = _cat.get('ventilation', {}).get('score', 0) or _vent_score
         _g_econ = _cat.get('economy', {}).get('score', 0) or _econ_score
@@ -3661,7 +3661,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci</div>
   <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:8px;text-align:center;">
-    {gauge_svg(min(100, _g_vo2), 'Wydolno\u015b\u0107', subtitle='VO\u2082max')}
+    {gauge_svg(min(100, _g_vo2), 'Profil', subtitle='Og\u00f3lny')}
     {gauge_svg(min(100, _g_vt2), 'Pr\u00f3g', subtitle='VT2')}
     {gauge_svg(min(100, _g_vent), 'Oddychanie', subtitle='Wentylacja')}
     {gauge_svg(min(100, _g_econ), 'Ekonomia', subtitle='Ruch')}
@@ -3747,12 +3747,16 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
         # ─── 4. SPALANIE TŁUSZCZÓW ───
         if fatmax:
+            try:
+                _fatmax_gh = float(fatmax) * 60
+            except:
+                _fatmax_gh = 0
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\U0001f525</span>Spalanie t\u0142uszcz\u00f3w</div>
   <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
     <div style="text-align:center;">
-      <div style="font-size:36px;font-weight:700;color:#16a34a;">{_n(fatmax,".2f")}</div>
-      <div style="font-size:12px;color:#64748b;">g/min (FATmax)</div>
+      <div style="font-size:36px;font-weight:700;color:#16a34a;">{_fatmax_gh:.0f}</div>
+      <div style="font-size:12px;color:#64748b;">g/h (FATmax)</div>
     </div>
     <div style="flex:1;min-width:200px;font-size:13px;color:#334155;line-height:1.7;">
       Maksymalne spalanie t\u0142uszcz\u00f3w przy <b>HR {_n(fatmax_hr,".0f")} bpm</b> ({_n(fatmax_pct_vo2,".0f")}% VO\u2082max).<br>
@@ -3767,46 +3771,89 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += '<div style="font-size:13px;color:#334155;line-height:1.8;">'
         
         _interp = []
+        
+        # VO2max — from E15 normalization engine
         try:
             _vo2v = float(vo2_rel) if vo2_rel else 0
+            _vo2_cls = vo2_class_sport or vo2_class or ''
             if pctile_val >= 85:
-                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) plasuje Ci\u0119 w <b>czo\u0142\u00f3wce</b> \u2014 to poziom sportowy. \U0001f4aa')
+                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) plasuje Ci\u0119 w <b>czo\u0142\u00f3wce</b> ({_vo2_cls}) \u2014 to poziom sportowy. \U0001f4aa')
             elif pctile_val >= 65:
-                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>powy\u017cej przeci\u0119tnej</b> \u2014 dobra baza do dalszego rozwoju.')
+                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>powy\u017cej przeci\u0119tnej</b> ({_vo2_cls}) \u2014 dobra baza do dalszego rozwoju.')
             elif pctile_val >= 40:
                 _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>w normie</b> \u2014 jest du\u017cy potencja\u0142 na popraw\u0119 regularnym treningiem.')
             else:
                 _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) wskazuje na <b>potencja\u0142 do poprawy</b> \u2014 regularny trening przyniesie szybkie efekty.')
         except: pass
         
+        # Thresholds — from E02/E16 threshold engines
         try:
-            _vt1p = float(vt1_pct) if vt1_pct else 0
-            _vt2p = float(vt2_pct) if vt2_pct else 0
-            if _vt2p >= 85:
-                _interp.append(f'Twoje progi s\u0105 <b>wysoko ustawione</b> (VT2 przy {_vt2p:.0f}% VO\u2082max) \u2014 mo\u017cesz utrzymywa\u0107 wysokie tempo przez d\u0142ugi czas.')
-            elif _vt2p >= 75:
-                _interp.append(f'Twoje progi s\u0105 na <b>dobrym poziomie</b> (VT2 przy {_vt2p:.0f}%). Trening tempo i interwa\u0142y progowe mog\u0105 je jeszcze podnie\u015b\u0107.')
-            elif _vt2p > 0:
-                _interp.append(f'Twoje progi maj\u0105 <b>przestrze\u0144 do poprawy</b> (VT2 przy {_vt2p:.0f}%). Systematyczny trening w Z3-Z4 pomo\u017ce je podnie\u015b\u0107.')
+            _vt2p_i = _sf(vt2_pct, 0)
+            _vt1p_i = _sf(vt1_pct, 0)
+            _gap_i = _sf(thr_gap, 0)
+            if _vt2p_i >= 85:
+                _msg = f'Twoje progi s\u0105 <b>wysoko ustawione</b> (VT2 przy {_vt2p_i:.0f}% VO\u2082max)'
+                if _gap_i >= 25:
+                    _msg += f' z szerokim gapem {_gap_i:.0f} bpm mi\u0119dzy progami \u2014 \u015bwietna elastyczno\u015b\u0107 stref.'
+                else:
+                    _msg += ' \u2014 mo\u017cesz utrzymywa\u0107 wysokie tempo przez d\u0142ugi czas.'
+                _interp.append(_msg)
+            elif _vt2p_i >= 75:
+                _interp.append(f'Twoje progi s\u0105 na <b>dobrym poziomie</b> (VT2 przy {_vt2p_i:.0f}%). Trening tempo i interwa\u0142y progowe mog\u0105 je jeszcze podnie\u015b\u0107.')
+            elif _vt2p_i > 0:
+                _interp.append(f'Twoje progi maj\u0105 <b>przestrze\u0144 do poprawy</b> (VT2 przy {_vt2p_i:.0f}%). Systematyczny trening w Z3-Z4 pomo\u017ce je podnie\u015b\u0107.')
         except: pass
         
+        # Ventilation — from E03 VentSlope engine
         try:
-            _hrr_val = float(hrr1) if hrr1 else 0
+            _slp_i = _sf(ve_vco2_slope)
+            if _slp_i is not None:
+                _vc = e03.get('ventilatory_class', '') if e03 else ''
+                if _slp_i < 25:
+                    _interp.append(f'Efektywno\u015b\u0107 wentylacyjna <b>wybitna</b> (VE/VCO\u2082 slope: {_slp_i:.1f}) \u2014 Twoje p\u0142uca pracuj\u0105 bardzo ekonomicznie.')
+                elif _slp_i > 34:
+                    _interp.append(f'Efektywno\u015b\u0107 wentylacyjna <b>wymaga uwagi</b> (VE/VCO\u2082 slope: {_slp_i:.1f}{", " + _vc if _vc else ""}). Trening oddechowy mo\u017ce pom\u00f3c.')
+        except: pass
+        
+        # Recovery — from E08 CardioHRR engine
+        try:
+            _hrr_val = _sf(hrr1, 0)
             if _hrr_val >= 40:
-                _interp.append(f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 t\u0119tno spada szybko po wysi\u0142ku (HRR {_hrr_val:.0f} bpm/min).')
+                _interp.append(f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 t\u0119tno spada szybko po wysi\u0142ku (HRR\u2081: {_hrr_val:.0f} bpm/min).')
             elif _hrr_val >= 25:
-                _interp.append(f'Regeneracja na <b>dobrym poziomie</b> (HRR {_hrr_val:.0f} bpm/min).')
+                _interp.append(f'Regeneracja na <b>dobrym poziomie</b> (HRR\u2081: {_hrr_val:.0f} bpm/min).')
             elif _hrr_val > 0:
-                _interp.append(f'Regeneracja mo\u017ce by\u0107 <b>lepsza</b> (HRR {_hrr_val:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.')
+                _interp.append(f'Regeneracja mo\u017ce by\u0107 <b>lepsza</b> (HRR\u2081: {_hrr_val:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.')
         except: pass
         
+        # Economy — from E06 Gain engine
         try:
-            _gz = float(gain_z) if gain_z else None
-            if _gz is not None:
-                if _gz > 0.5:
-                    _interp.append('Twoja ekonomia ruchu jest <b>ponadprzeci\u0119tna</b> \u2014 zu\u017cywasz mniej energii na danym tempie ni\u017c przeci\u0119tna osoba.')
-                elif _gz < -0.5:
-                    _interp.append('Ekonomia ruchu do poprawy \u2014 \u0107wiczenia techniczne i trening si\u0142owy mog\u0105 pom\u00f3c biega\u0107 wydajniej.')
+            _gz_i = _sf(gain_z)
+            _re_i = _sf(re_mlkgkm)
+            if _gz_i is not None:
+                if _gz_i > 0.5:
+                    _interp.append(f'Twoja ekonomia ruchu jest <b>ponadprzeci\u0119tna</b> (z-score: {_gz_i:+.1f}){" \u2014 RE: " + str(int(_re_i)) + " ml/kg/km" if _re_i else ""}.')
+                elif _gz_i < -0.5:
+                    _interp.append(f'Ekonomia ruchu <b>do poprawy</b> (z-score: {_gz_i:+.1f}){" \u2014 RE: " + str(int(_re_i)) + " ml/kg/km" if _re_i else ""}. Plyometria i trening si\u0142owy pomog\u0105.')
+        except: pass
+        
+        # Cardiac — from E05 O2Pulse engine
+        try:
+            _o2p_i = _sf(o2p_pct)
+            if _o2p_i is not None and _o2p_i > 115:
+                _interp.append(f'O\u2082 pulse na <b>{_o2p_i:.0f}% normy</b> \u2014 silne serce sportowe z wysok\u0105 obj\u0119to\u015bci\u0105 wyrzutow\u0105.')
+            elif _o2p_i is not None and _o2p_i < 85:
+                _interp.append(f'O\u2082 pulse na <b>{_o2p_i:.0f}% normy</b> \u2014 obj\u0119to\u015b\u0107 wyrzutowa serca mo\u017ce by\u0107 limiterem. Interwa\u0142y VO\u2082max pomog\u0105.')
+        except: pass
+        
+        # Substrate — from E10 Substrate engine
+        try:
+            _fat_i = _sf(fatmax, 0)
+            _cop_i = _sf(cop_pct_vo2)
+            if _fat_i >= 0.5:
+                _interp.append(f'Metabolizm t\u0142uszczowy <b>bardzo dobry</b> (FATmax: {_fat_i * 60:.0f} g/h) \u2014 \u015bwietna adaptacja do d\u0142ugich dystans\u00f3w.')
+            elif _cop_i is not None and _cop_i < 40:
+                _interp.append(f'Wczesny crossover CHO/FAT (przy {_cop_i:.0f}% VO\u2082max) \u2014 wi\u0119cej trening\u00f3w Z2 i strategia \u017cywieniowa poprawi\u0105 spalanie t\u0142uszcz\u00f3w.')
         except: pass
         
         for line in _interp:
