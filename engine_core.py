@@ -8260,23 +8260,24 @@ class Engine_E15_Normalization:
     # VO2max klasyfikacja populacyjna: (min, max) ml/kg/min
     # Źródło: ACSM 11th Ed + Cooper Institute (Garmin/Polar tables)
     VO2MAX_NORMS_MALE = {
-        # age_range: (very_poor, poor, fair, good, excellent, superior)
-        #            granice: <vp | vp-p | p-f | f-g | g-e | e-s | >s
-        (20, 29): (0, 25, 30, 34, 38, 42, 49),
-        (30, 39): (0, 23, 28, 32, 36, 40, 47),
-        (40, 49): (0, 20, 25, 30, 34, 38, 44),
-        (50, 59): (0, 18, 23, 28, 32, 36, 42),
-        (60, 69): (0, 16, 21, 26, 30, 34, 39),
-        (70, 99): (0, 14, 19, 24, 28, 32, 37),
+        # ACSM Guidelines for Exercise Testing and Prescription, 11th ed (2022)
+        # age_range: (very_poor_lo, poor_lo, fair_lo, good_lo, excellent_lo, superior_lo, ceiling)
+        (20, 29): (0, 25, 33, 37, 42, 46, 53),
+        (30, 39): (0, 24, 32, 36, 41, 44, 50),
+        (40, 49): (0, 21, 28, 33, 37, 41, 47),
+        (50, 59): (0, 18, 25, 30, 34, 38, 44),
+        (60, 69): (0, 16, 21, 26, 30, 34, 40),
+        (70, 99): (0, 14, 18, 23, 27, 31, 37),
     }
 
     VO2MAX_NORMS_FEMALE = {
-        (20, 29): (0, 20, 24, 28, 32, 36, 44),
-        (30, 39): (0, 18, 22, 26, 30, 34, 41),
-        (40, 49): (0, 16, 20, 24, 28, 32, 39),
-        (50, 59): (0, 14, 18, 22, 26, 30, 36),
-        (60, 69): (0, 12, 16, 20, 24, 28, 33),
-        (70, 99): (0, 10, 14, 18, 22, 26, 31),
+        # ACSM Guidelines for Exercise Testing and Prescription, 11th ed (2022)
+        (20, 29): (0, 21, 28, 32, 36, 40, 48),
+        (30, 39): (0, 20, 26, 30, 34, 38, 45),
+        (40, 49): (0, 17, 24, 27, 31, 35, 42),
+        (50, 59): (0, 15, 21, 24, 28, 32, 39),
+        (60, 69): (0, 13, 18, 21, 25, 29, 36),
+        (70, 99): (0, 11, 16, 19, 23, 27, 33),
     }
 
     VO2MAX_LABELS_POP = [
@@ -8561,14 +8562,19 @@ class Engine_E15_Normalization:
 
         # bucket: (0, vp_max, poor_max, fair_max, good_max, exc_max, sup_max)
         # labels: VERY_POOR, POOR, FAIR, GOOD, EXCELLENT, SUPERIOR
+        pct_lo_map = [1, 5, 20, 40, 65, 85]   # percentile at lower boundary of each category
+        pct_hi_map = [5, 20, 40, 65, 85, 97]   # percentile at upper boundary of each category
         for i in range(len(labels)):
             lo_val = bucket[i]
             hi_val = bucket[i + 1]
             if vo2_rel < hi_val:
-                # Szacunkowy percentyl
-                # VERY_POOR: ~5%, POOR: ~15%, FAIR: ~35%, GOOD: ~60%, EXCELLENT: ~80%, SUPERIOR: ~95%
-                pct_map = [5, 15, 35, 60, 80, 95]
-                pct = pct_map[i]
+                # Linear interpolation within the category for more accurate percentile
+                if hi_val > lo_val:
+                    frac = (vo2_rel - lo_val) / (hi_val - lo_val)
+                else:
+                    frac = 0.5
+                pct = round(pct_lo_map[i] + frac * (pct_hi_map[i] - pct_lo_map[i]))
+                pct = max(1, min(99, pct))
                 return labels[i], pct
 
         return "SUPERIOR", 99
