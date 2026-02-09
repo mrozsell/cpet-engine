@@ -493,7 +493,9 @@ if "cpet_results" in st.session_state:
 
     # Select report based on user choice
     is_lite = "LITE" in report_type
-    if is_lite and "html_report_lite" in results:
+    has_lite = "html_report_lite" in results
+    st.caption(f"🔍 Debug: report_type='{report_type}' | is_lite={is_lite} | has_lite_key={has_lite}")
+    if is_lite and has_lite:
         html_content = results["html_report_lite"]
         report_label = "LITE"
     else:
