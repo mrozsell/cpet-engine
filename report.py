@@ -3674,7 +3674,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 L.append(f"        {bp} alignment: {src_str} | spread={sp}s | confidence={conf}")
         return "\n".join(L)
 
-    def render_text_report(ct: Dict[str, Any]) -> str:
+    def render_text_report(ct: 'Dict[str, Any]') -> str:
         """Renderuje pełny raport tekstowy wg szablonu T12."""
 
 
