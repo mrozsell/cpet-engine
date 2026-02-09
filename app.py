@@ -88,11 +88,17 @@ def auto_extract_from_csv(df, filename=""):
         for i, p in enumerate(parts):
             if p == 'CPET' and i + 2 < len(parts):
                 info['name'] = f"{parts[i+1]} {parts[i+2]}" if i + 2 < len(parts) else parts[i+1]
-        date_candidates = [p for p in parts if len(p) == 10 and p.count('_') == 0 and p.replace('-','').isdigit()]
-        if not date_candidates:
-            date_candidates = [p for p in parts if len(p) >= 8 and p[:4].isdigit()]
-        if date_candidates:
-            info['date'] = date_candidates[0][:10]
+        # Extract date: look for YYYY_MM_DD or YYYY-MM-DD pattern in filename
+        import re as _re
+        _dm = _re.search(r'(\d{4})[_\-](\d{2})[_\-](\d{2})', filename)
+        if _dm:
+            info['date'] = f"{_dm.group(1)}-{_dm.group(2)}-{_dm.group(3)}"
+        else:
+            date_candidates = [p for p in parts if len(p) == 10 and p.count('_') == 0 and p.replace('-','').isdigit()]
+            if not date_candidates:
+                date_candidates = [p for p in parts if len(p) >= 8 and p[:4].isdigit()]
+            if date_candidates:
+                info['date'] = date_candidates[0][:10]
     if len(df) > 0:
         row = df.iloc[0]
         for col in ['Age', 'Wiek']:

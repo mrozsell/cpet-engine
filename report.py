@@ -1650,6 +1650,14 @@ class ReportAdapter:
         proto_name = getattr(cfg, 'protocol_name', '') or ''
         modality = getattr(cfg, 'modality', 'run')
         mod_pl = 'Bieżnia' if modality == 'run' else ('Rower' if modality == 'bike' else modality.capitalize())
+        # Infer test device from protocol name
+        _prot_upper = proto_name.upper()
+        if any(k in _prot_upper for k in ('RUN_', 'BRUCE', 'BIEZNIA', 'TREADMILL', 'STEP_3MIN', 'HYROX')):
+            mod_pl = 'Bieżnia'
+        elif any(k in _prot_upper for k in ('BIKE_', 'CYCLE', 'ROWER', 'WATT', 'ECHO')):
+            mod_pl = 'Rower'
+        elif any(k in _prot_upper for k in ('ROW_', 'WIOSLARZ')):
+            mod_pl = 'Ergometr wiośl.'
         
         t_stop = results.get('E00', {}).get('t_stop', 0)
         dur_min = t_stop / 60 if t_stop else 0
@@ -4016,6 +4024,10 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         modality = v('modality','run')
         test_date = v('test_date','')
         protocol = v('protocol_name')
+        _td = ct.get('test_device', 'treadmill')
+        _device_pl = {'treadmill': 'Bieżnia', 'bike_erg': 'Rower', 'rowing_erg': 'Ergometr wiośl.'}.get(_td, 'Bieżnia' if modality == 'run' else 'Rower')
+        _sport_map = {'crossfit': 'CrossFit', 'hyrox': 'HYROX', 'triathlon': 'Triathlon', 'mma': 'MMA', 'swimming': 'Pływanie', 'soccer': 'Piłka nożna', 'xc_ski': 'Biegi narc.', 'rowing': 'Wioślarstwo'}
+        _sport_tag = f' • {_sport_map[modality]}' if modality in _sport_map else ''
         
         e00 = g('_e00_raw',{})
         t_stop = e00.get('t_stop',0)
@@ -4126,7 +4138,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
       <div style="font-size:28px;font-weight:800;margin-bottom:4px;letter-spacing:-0.5px;">{esc(name)}</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#cbd5e1;margin-bottom:8px;">
         <span>\U0001f4c5 {test_date}</span>
-        <span>\U0001f3c3 {"Bieżnia" if modality=="run" else "Rower"}</span>
+        <span>\U0001f3c3 {_device_pl}{_sport_tag}</span>
         <span>\u23f1\ufe0f Czas: {dur_str}</span>
         <span>\u2764\ufe0f HR max: {_n(hr_peak,".0f","-")} bpm</span>
       </div>
@@ -4465,7 +4477,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         # ─── 5b. PROTOKÓŁ (zwijany) ───
         _proto_desc = v('_protocol_description', '')
         if not _proto_desc:
-            _proto_desc = f'{"Bieżnia" if modality == "run" else "Rower"}, {protocol}'
+            _proto_desc = f'{_device_pl}, {protocol}'
         h += f'''<div class="card" style="padding:0;">
   <details style="cursor:pointer;">
     <summary style="padding:12px 16px;font-size:13px;font-weight:600;color:#475569;list-style:none;display:flex;align-items:center;gap:8px;">
@@ -4477,7 +4489,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         <div><b>Protokół:</b> {esc(_proto_desc)}</div>
       </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;">
-        <span><b>Modalność:</b> {"Bieżnia" if modality == "run" else "Rower"}</span>
+        <span><b>Modalność:</b> {_device_pl}</span>
         <span><b>Czas wysiłku:</b> {dur_str}</span>
         <span><b>HR max:</b> {_n(hr_peak, ".0f", "—")} bpm</span>
         <span><b>RER peak:</b> {_n(rer_peak, ".2f", "—")}</span>
