@@ -4088,6 +4088,49 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             
             h += '</div>'
         
+        # ── GAME CHANGER — top training recommendation from E20 ──
+        if _limiter and _limiter.get('limiter_text'):
+            _lim_key_map = {
+                'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
+                'vt2': 'HIGH_BASE_LOW_THRESHOLD',
+                'vt1': 'HIGH_BASE_LOW_THRESHOLD',
+                'economy': 'ECONOMY_LIMITER',
+                'ventilation': 'HIGH_THRESHOLDS_LOW_CEILING',
+                'cardiac': 'HIGH_THRESHOLDS_LOW_CEILING',
+                'recovery': 'RECOVERY_DEFICIT',
+                'substrate': 'FAT_METABOLISM',
+                'breathing': 'HIGH_THRESHOLDS_LOW_CEILING',
+            }
+            try:
+                from e20_training_decision import PhysioSnapshot, TrainingProfile, score_limiters, _scale_session, SPORT_CLASS_RANK
+                # Build engine results dict from canon_table _eXX_raw
+                _e20_results = {}
+                for _eid in ['E00','E01','E02','E03','E04','E05','E06','E07','E08','E09','E10','E11','E12','E13','E14','E15','E16','E17','E19']:
+                    _e20_results[_eid] = ct.get('_' + _eid.lower() + '_raw', {})
+                _e20_results['_performance_context'] = ct.get('_performance_context', {})
+                _e20_snap = PhysioSnapshot.from_results(_e20_results, None)
+                _e20_snap.zones = zones_data
+                _e20_profile = TrainingProfile(modality=ct.get('_prot_modality','run'))
+                _e20_limiters = score_limiters(_e20_snap, _e20_profile)
+                _sc_rank = SPORT_CLASS_RANK.get(_e20_snap.sport_class, 1)
+                _lim_type = _lim_key_map.get(_limiter_key, 'HIGH_BASE_LOW_THRESHOLD')
+                _gc_session = _scale_session('KEY_1', _e20_snap, _sc_rank, _lim_type)
+                if _limiter_key == 'economy':
+                    _gc_session = _scale_session('KEY_2', _e20_snap, _sc_rank, 'ECONOMY_LIMITER')
+                elif _limiter_key == 'substrate':
+                    _gc_session = f"FATmax Z2 long run: 60-90 min @ HR {zones_data.get('z2',{}).get('hr_low','?')}-{zones_data.get('z2',{}).get('hr_high','?')} (na czczo lub low-carb)"
+                elif _limiter_key == 'recovery':
+                    _gc_session = f"Recovery Z1: 20-30 min @ HR < {zones_data.get('z1',{}).get('hr_high','?')} + rozciąganie + oddychanie 4-7-8"
+            except Exception:
+                _gc_session = _limiter.get('tip', '')
+            
+            if _gc_session:
+                h += f'''<div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,#fefce8,#fef9c3);border-radius:12px;border-left:4px solid #eab308;">
+  <div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:6px;">🎯 GAME CHANGER — trening tygodnia</div>
+  <div style="font-size:12px;color:#334155;line-height:1.6;">{_gc_session}</div>
+  <div style="margin-top:6px;font-size:10px;color:#a16207;">Odpowiedź na Twój limiter: {_limiter.get('label','')}</div>
+</div>'''
+        
         h += '</div>'
 
         # ─── 3. STREFY TRENINGOWE ───
@@ -4115,10 +4158,10 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
         if vt1_hr:
             _vt1_spd = f' | {_n(vt1_speed,".1f")} km/h' if vt1_speed else ''
-            h += f'<div style="flex:1;min-width:180px;padding:12px;background:#f0fdf4;border-radius:10px;border-left:4px solid #22c55e;"><div style="font-size:11px;color:#475569;font-weight:600;">Pr\u00f3g tlenowy (VT1)</div><div style="font-size:22px;font-weight:700;color:#16a34a;">\u2764\ufe0f {_n(vt1_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt1_pct,".0f")}% VO\u2082max{_vt1_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Poni\u017cej tego t\u0119tna \u2014 spalasz g\u0142\u00f3wnie t\u0142uszcze</div></div>'
+            h += f'<div style="flex:1;min-width:180px;padding:12px;background:#eff6ff;border-radius:10px;border-left:4px solid #3b82f6;"><div style="font-size:11px;color:#475569;font-weight:600;">1. pr\u00f3g wentylacyjny (VT1)</div><div style="font-size:22px;font-weight:700;color:#2563eb;">\u2764\ufe0f {_n(vt1_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt1_pct,".0f")}% VO\u2082max{_vt1_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Poni\u017cej tego t\u0119tna \u2014 spalasz g\u0142\u00f3wnie t\u0142uszcze</div></div>'
         if vt2_hr:
             _vt2_spd = f' | {_n(vt2_speed,".1f")} km/h' if vt2_speed else ''
-            h += f'<div style="flex:1;min-width:180px;padding:12px;background:#eff6ff;border-radius:10px;border-left:4px solid #3b82f6;"><div style="font-size:11px;color:#475569;font-weight:600;">Pr\u00f3g mleczanowy (VT2)</div><div style="font-size:22px;font-weight:700;color:#2563eb;">\u2764\ufe0f {_n(vt2_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt2_pct,".0f")}% VO\u2082max{_vt2_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Powy\u017cej tego \u2014 organizm nie nad\u0105\u017ca z usuwaniem mleczanu</div></div>'
+            h += f'<div style="flex:1;min-width:180px;padding:12px;background:#fef2f2;border-radius:10px;border-left:4px solid #ef4444;"><div style="font-size:11px;color:#475569;font-weight:600;">2. pr\u00f3g wentylacyjny (VT2)</div><div style="font-size:22px;font-weight:700;color:#dc2626;">\u2764\ufe0f {_n(vt2_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt2_pct,".0f")}% VO\u2082max{_vt2_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Powy\u017cej tego \u2014 organizm nie nad\u0105\u017ca z usuwaniem mleczanu</div></div>'
         h += '</div>'
         
         for i, (zname, zcol, zfeel, zuse) in enumerate(zip(zone_names, zone_colors, zone_feelings, zone_uses)):
