@@ -3652,14 +3652,20 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 </div>'''
 
         # ─── 2. PROFIL WYDOLNOŚCI + LIMITER / SUPERMOC ───
+        _g_vo2 = _cat.get('vo2max', {}).get('score', 0) or pctile_val
+        _g_vt2 = _cat.get('vt2', {}).get('score', 0) or _vt2_score
+        _g_vent = _cat.get('ventilation', {}).get('score', 0) or _vent_score
+        _g_econ = _cat.get('economy', {}).get('score', 0) or _econ_score
+        _g_hrr = _cat.get('recovery', {}).get('score', 0) or _hrr_score
+        
         h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci</div>
   <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:8px;text-align:center;">
-    {gauge_svg(min(100, _cat.get('vo2max',{{}}).get('score',0) or pctile_val), 'Wydolno\u015b\u0107', subtitle='VO\u2082max')}
-    {gauge_svg(min(100, _cat.get('vt2',{{}}).get('score',0) or _vt2_score), 'Pr\u00f3g', subtitle='VT2')}
-    {gauge_svg(min(100, _cat.get('ventilation',{{}}).get('score',0) or _vent_score), 'Oddychanie', subtitle='Wentylacja')}
-    {gauge_svg(min(100, _cat.get('economy',{{}}).get('score',0) or _econ_score), 'Ekonomia', subtitle='Ruch')}
-    {gauge_svg(min(100, _cat.get('recovery',{{}}).get('score',0) or _hrr_score), 'Regeneracja', subtitle='HRR')}
+    {gauge_svg(min(100, _g_vo2), 'Wydolno\u015b\u0107', subtitle='VO\u2082max')}
+    {gauge_svg(min(100, _g_vt2), 'Pr\u00f3g', subtitle='VT2')}
+    {gauge_svg(min(100, _g_vent), 'Oddychanie', subtitle='Wentylacja')}
+    {gauge_svg(min(100, _g_econ), 'Ekonomia', subtitle='Ruch')}
+    {gauge_svg(min(100, _g_hrr), 'Regeneracja', subtitle='HRR')}
   </div>
   <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
     Ka\u017cdy wska\u017anik w skali 0\u2013100. Powy\u017cej 70 = bardzo dobrze. Powy\u017cej 85 = poziom sportowy.
