@@ -1,4 +1,14 @@
 # =========
+import numpy as np
+import pandas as pd
+
+# Lazy import to avoid circular dependency
+try:
+    from engine_core import RAW_PROTOCOLS, compile_protocol_for_apply, PROTOCOLS_DB
+except ImportError:
+    RAW_PROTOCOLS = {}
+    compile_protocol_for_apply = None
+    PROTOCOLS_DB = {}
             
             # ═══════════════════════════════════════════════════════════════
 
@@ -1887,7 +1897,11 @@ class ReportAdapter:
         ct['_prot_modality'] = getattr(cfg, 'modality', '-')
         
         # Protocol steps from RAW_PROTOCOLS
-        _prot_segs = RAW_PROTOCOLS.get(ct['_prot_name'], [])
+        try:
+            from engine_core import RAW_PROTOCOLS as _RP
+            _prot_segs = _RP.get(ct['_prot_name'], [])
+        except ImportError:
+            _prot_segs = []
         _prot_steps = []
         for _seg in _prot_segs:
             _st = _seg.get('type', '?')
@@ -3266,7 +3280,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             _hrr_lbl = f'HRR {_hrr_val:.0f}' if _hrr_val > 0 else 'b/d'
         except: _hrr_lbl = 'b/d'
         
-        _gauge_vo2_sub = _profile_pro.get('sport_class', f'{_n(vo2_pctile,".0f","?")} pcntyl')
+        _gauge_vo2_sub = _profile_pro.get('sport_class', '')
         _gauge_val_sub = str(val_grade)
         _gauge_hrr_sub = _hrr_lbl
         _gauge_overall_sub = _overall_grade
