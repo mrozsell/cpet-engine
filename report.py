@@ -1103,15 +1103,34 @@ def compute_profile_scores(ct):
     
     # ── 4. ECONOMY ──
     _gz = _sf(gain_z, 0)
-    _econ_sc = max(0, min(100, 50 + _gz * 22))
     _re_v = _sf(re_mlkgkm)
     _re_info = f' (RE: {_re_v:.0f} ml/kg/km)' if _re_v else ''
+    
+    # RE-based scoring for running (lower RE = better economy)
+    if modality == 'run' and _re_v and _re_v > 0:
+        if _re_v < 175: _econ_sc = 95
+        elif _re_v < 185: _econ_sc = 80 + (185 - _re_v) / 10 * 15
+        elif _re_v < 200: _econ_sc = 60 + (200 - _re_v) / 15 * 20
+        elif _re_v < 215: _econ_sc = 40 + (215 - _re_v) / 15 * 20
+        elif _re_v < 235: _econ_sc = 20 + (235 - _re_v) / 20 * 20
+        else: _econ_sc = max(5, 20 - (_re_v - 235) / 20 * 15)
+        _econ_label = 'Ekonomia biegu'
+        _econ_lim = f'Ekonomia biegu do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
+        _econ_sup = f'Doskonała ekonomia biegu (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba.'
+    else:
+        # GAIN_z-based for cycling or when RE unavailable
+        _econ_sc = max(0, min(100, 50 + _gz * 22)) if _gz else 50
+        _econ_label = 'Ekonomia ruchu'
+        _econ_lim = f'Ekonomia ruchu poniżej przeciętnej (z-score: {_gz:+.1f}){_re_info}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
+        _econ_sup = f'Doskonała ekonomia ruchu (z-score: {_gz:+.1f}){_re_info} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba. To jak oszczędny silnik w wyścigówce.'
+    
+    _econ_sc = max(0, min(100, _econ_sc))
     _cat['economy'] = {
         'score': _econ_sc,
-        'label': 'Ekonomia ruchu',
+        'label': _econ_label,
         'icon': '⚙️',
-        'limiter_text': f'Ekonomia ruchu poniżej przeciętnej (z-score: {_gz:+.1f}){_re_info}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.',
-        'super_text': f'Doskonała ekonomia ruchu (z-score: {_gz:+.1f}){_re_info} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba. To jak oszczędny silnik w wyścigówce.',
+        'limiter_text': _econ_lim,
+        'super_text': _econ_sup,
         'tip': 'Plyometria + trening siłowy + technika'
     }
     
@@ -1401,11 +1420,20 @@ def compute_profile_scores(ct):
     
     # ── Economy ──
     try:
-        if _gz > 0.5:
-            _interp['economy'] = f'Twoja ekonomia ruchu jest <b>ponadprzeciętna</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}.'
-        elif _gz < -0.5:
-            _interp['economy'] = f'Ekonomia ruchu <b>do poprawy</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}. Plyometria i trening siłowy pomogą.'
-        # -0.5 to 0.5 → skip (neutral)
+        if modality == 'run' and _re_v and _re_v > 0:
+            if _re_v < 185:
+                _interp['economy'] = f'Ekonomia biegu <b>ponadprzeciętna</b> (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}.'
+            elif _re_v < 200:
+                _interp['economy'] = f'Ekonomia biegu <b>dobra</b> (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""} \u2014 w normie, z potencjałem na poprawę.'
+            elif _re_v < 215:
+                _interp['economy'] = f'Ekonomia biegu <b>przeciętna</b> (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Plyometria i trening siłowy pomogą.'
+            else:
+                _interp['economy'] = f'Ekonomia biegu <b>do poprawy</b> (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
+        else:
+            if _gz > 0.5:
+                _interp['economy'] = f'Ekonomia ruchu <b>ponadprzeciętna</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}.'
+            elif _gz < -0.5:
+                _interp['economy'] = f'Ekonomia ruchu <b>do poprawy</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}. Plyometria i trening siłowy pomogą.'
     except:
         pass
     
@@ -2982,8 +3010,8 @@ class ReportAdapter:
         # =====================================================================
         # GATHER ALL DATA
         # =====================================================================
-        _raw_name = v('athlete_name','')
-        name = _raw_name if _raw_name and _raw_name not in ('AUTO','Nieznany Zawodnik','-','') else (v('athlete_id','') if v('athlete_id','') not in ('ID','-','') else 'Sportowiec')
+        _raw_name = str(v('athlete_name','')).strip()
+        name = _raw_name if _raw_name and _raw_name not in ('AUTO','Nieznany Zawodnik','-','') else (str(v('athlete_id','')).strip() or 'Sportowiec')
         age = v('age_y'); sex_pl = 'M' if v('sex')=='male' else 'K'
         weight = v('body_mass_kg'); height = v('height_cm')
         protocol = v('protocol_name')
@@ -3731,20 +3759,46 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         try:
             _vo2v = float(vo2_rel) if vo2_rel else 0
             h += f'<div class="section"><div class="card">{section_title("Porównanie sportowe", "VI")}'
-            sport_refs = [('Elita maratończycy', 75, 85), ('Elita triathlon', 65, 75), ('Sub-elite', 55, 65), ('Zaawansowany amator', 45, 55), ('Średni amator', 35, 45), ('Początkujący', 25, 35)]
+            # Use real E15 sport class boundaries — sex and modality aware
+            _sex_key = v('sex', 'male')
+            _mod_key = modality if modality in ('run', 'bike') else 'default'
+            _sport_labels = {
+                'ELITE': 'Elita', 'SUB_ELITE': 'Sub-elite', 'COMPETITIVE': 'Zawodnik',
+                'TRAINED': 'Wytrenowany', 'RECREATIONAL': 'Amator', 'UNTRAINED': 'Początkujący'
+            }
+            try:
+                from engines import E15_VO2max_Norms
+                _tbl = E15_VO2max_Norms.VO2MAX_SPORT_FEMALE if _sex_key == 'female' else E15_VO2max_Norms.VO2MAX_SPORT_MALE
+                _ranges = _tbl.get(_mod_key, _tbl.get('default', []))
+            except:
+                # Fallback if engines not importable
+                if _sex_key == 'female':
+                    _ranges = [(0,35,'UNTRAINED'),(35,45,'RECREATIONAL'),(45,53,'TRAINED'),(53,58,'COMPETITIVE'),(58,65,'SUB_ELITE'),(65,999,'ELITE')]
+                else:
+                    _ranges = [(0,40,'UNTRAINED'),(40,50,'RECREATIONAL'),(50,58,'TRAINED'),(58,65,'COMPETITIVE'),(65,72,'SUB_ELITE'),(72,999,'ELITE')]
+            
+            # Build sport_refs in descending order (elite first)
+            sport_refs = []
+            for lo, hi, cls in reversed(_ranges):
+                lbl = _sport_labels.get(cls, cls)
+                hi_disp = hi if hi < 900 else f'{lo}+'
+                sport_refs.append((lbl, lo, min(hi, lo + 15)))
+            
             h += '<div style="display:flex;gap:4px;align-items:flex-end;height:120px;margin-bottom:6px;">'
             for lbl, lo, hi in sport_refs:
-                mid = (lo+hi)/2
+                mid = (lo + hi) / 2
                 bar_h = mid * 1.2
-                is_you = lo <= _vo2v < hi
+                is_you = lo <= _vo2v < hi or (hi >= 900 and _vo2v >= lo)
                 h += f'<div style="flex:1;text-align:center;">'
                 h += f'<div style="font-size:8px;color:#64748b;margin-bottom:2px;">{lbl}</div>'
                 h += f'<div style="height:{bar_h}px;background:{"#3b82f6" if is_you else "#e2e8f0"};border-radius:4px 4px 0 0;display:flex;align-items:flex-end;justify-content:center;">'
-                h += f'<span style="font-size:9px;color:{"white" if is_you else "#94a3b8"};padding:2px;">{lo}-{hi}</span></div></div>'
+                hi_lbl = f'{hi}+' if hi >= 900 else str(hi)
+                h += f'<span style="font-size:9px;color:{"white" if is_you else "#94a3b8"};padding:2px;">{lo}-{hi_lbl}</span></div></div>'
             h += f'<div style="flex:1;text-align:center;">'
             h += f'<div style="font-size:9px;font-weight:700;color:#3b82f6;">👉 Ty</div>'
             h += f'<div style="font-size:18px;font-weight:700;color:#0f172a;">{_n(vo2_rel)}</div>'
             h += '</div></div>'
+            h += f'<div style="font-size:10px;color:#94a3b8;text-align:center;">Normy sportowe: {"♀ kobiece" if _sex_key=="female" else "♂ męskie"} | {"bieg" if _mod_key=="run" else ("rower" if _mod_key=="bike" else "ogólne")}</div>'
             h += '</div></div>'
         except: pass
 
@@ -3816,8 +3870,8 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         # =====================================================================
         # GATHER DATA
         # =====================================================================
-        _raw_name = v('athlete_name','')
-        name = _raw_name if _raw_name and _raw_name not in ('AUTO','Nieznany Zawodnik','-','') else (v('athlete_id','') if v('athlete_id','') not in ('ID','-','') else 'Sportowiec')
+        _raw_name = str(v('athlete_name','')).strip()
+        name = _raw_name if _raw_name and _raw_name not in ('AUTO','Nieznany Zawodnik','-','') else (str(v('athlete_id','')).strip() or 'Sportowiec')
         age = v('age_y'); sex_pl = 'M' if v('sex')=='male' else 'K'
         weight = v('body_mass_kg'); height = v('height_cm')
         modality = v('modality','run')
@@ -4156,6 +4210,53 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
   </div>
 </div>'''
 
+        # ─── 4b. EKONOMIA ───
+        _econ_data = _profile.get('categories', {}).get('economy', {})
+        _econ_score = _econ_data.get('score', 0)
+        _econ_lbl = _econ_data.get('label', 'Ekonomia ruchu')
+        _econ_interp = _profile.get('interpretations', {}).get('economy', '')
+        
+        if modality == 'run' and re_mlkgkm:
+            _re_display = f'{_n(re_mlkgkm, ".0f", "—")}'
+            _re_unit = 'ml/kg/km'
+            _re_rating = 'Świetna' if _econ_score >= 80 else ('Dobra' if _econ_score >= 60 else ('Przeciętna' if _econ_score >= 40 else 'Do poprawy'))
+            _re_color = '#16a34a' if _econ_score >= 70 else ('#eab308' if _econ_score >= 50 else '#ef4444')
+            _gain_info = f'<div style="font-size:11px;color:#64748b;margin-top:4px;">GAIN z-score: {_n(gain_z, "+.1f", "—")}</div>' if gain_z else ''
+            h += f'''<div class="card">
+  <div class="section-title"><span class="section-icon">\u2699\ufe0f</span>{esc(_econ_lbl)}</div>
+  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+    <div style="text-align:center;padding:12px 20px;background:#f8fafc;border-radius:10px;border-left:4px solid {_re_color};">
+      <div style="font-size:11px;color:#475569;font-weight:600;">Running Economy</div>
+      <div style="font-size:28px;font-weight:700;color:{_re_color};">{_re_display} <span style="font-size:12px;font-weight:500;">{_re_unit}</span></div>
+      <div style="font-size:11px;color:#64748b;">{_re_rating}</div>
+      {_gain_info}
+    </div>
+    <div style="flex:1;min-width:200px;font-size:13px;color:#334155;line-height:1.7;">
+      {_econ_interp or f"RE {_re_display} ml/kg/km — im niższe, tym lepsza ekonomia."}
+      <div style="margin-top:8px;font-size:11px;color:#64748b;">
+        <b>Normy RE (bieg):</b> &lt;180 = elitarna, 180-200 = dobra, 200-215 = przeciętna, &gt;215 = do poprawy
+      </div>
+    </div>
+  </div>
+</div>'''
+        elif gain_z is not None:
+            _gz_v = float(gain_z) if gain_z else 0
+            _gz_color = '#16a34a' if _gz_v > 0.5 else ('#eab308' if _gz_v > -0.5 else '#ef4444')
+            _gz_rating = 'Ponadprzeciętna' if _gz_v > 0.5 else ('W normie' if _gz_v > -0.5 else 'Do poprawy')
+            h += f'''<div class="card">
+  <div class="section-title"><span class="section-icon">\u2699\ufe0f</span>{esc(_econ_lbl)}</div>
+  <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+    <div style="text-align:center;padding:12px 20px;background:#f8fafc;border-radius:10px;border-left:4px solid {_gz_color};">
+      <div style="font-size:11px;color:#475569;font-weight:600;">GAIN z-score</div>
+      <div style="font-size:28px;font-weight:700;color:{_gz_color};">{_gz_v:+.1f}</div>
+      <div style="font-size:11px;color:#64748b;">{_gz_rating}</div>
+    </div>
+    <div style="flex:1;min-width:200px;font-size:13px;color:#334155;line-height:1.7;">
+      {_econ_interp or "GAIN z-score porównuje Twoją efektywność z normą populacyjną."}
+    </div>
+  </div>
+</div>'''
+
         # ─── 5. CO TO ZNACZY ───
         h += '<div class="card">'
         h += '<div class="section-title"><span class="section-icon">\U0001f4a1</span>Co oznaczaj\u0105 Twoje wyniki</div>'
@@ -4174,6 +4275,35 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             h += '<p>Brak wystarczaj\u0105cych danych do pe\u0142nej interpretacji.</p>'
         
         h += '</div></div>'
+
+        # ─── 5b. PROTOKÓŁ (zwijany) ───
+        _proto_desc = v('_protocol_description', '')
+        if not _proto_desc:
+            _proto_desc = f'{"Bieżnia" if modality == "run" else "Rower"}, {protocol}'
+        h += f'''<div class="card" style="padding:0;">
+  <details style="cursor:pointer;">
+    <summary style="padding:12px 16px;font-size:13px;font-weight:600;color:#475569;list-style:none;display:flex;align-items:center;gap:8px;">
+      <span style="font-size:14px;">\U0001f4cb</span> Protokół badania
+      <span style="margin-left:auto;font-size:10px;color:#94a3b8;">▼ rozwiń</span>
+    </summary>
+    <div style="padding:0 16px 14px;font-size:12px;color:#475569;line-height:1.7;border-top:1px solid #e2e8f0;">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
+        <div><b>Protokół:</b> {esc(_proto_desc)}</div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;">
+        <span><b>Modalność:</b> {"Bieżnia" if modality == "run" else "Rower"}</span>
+        <span><b>Czas wysiłku:</b> {dur_str}</span>
+        <span><b>HR max:</b> {_n(hr_peak, ".0f", "—")} bpm</span>
+        <span><b>RER peak:</b> {_n(rer_peak, ".2f", "—")}</span>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;">
+        <span><b>VO\u2082max:</b> {_n(vo2_rel)} ml/kg/min ({_n(vo2_abs)} L/min)</span>
+        <span><b>Percentyl pop.:</b> ~{_n(vo2_pctile, ".0f", "?")}%</span>
+        <span><b>Klasa sportowa:</b> {esc(vo2_class_sport)}</span>
+      </div>
+    </div>
+  </details>
+</div>'''
 
         # ─── 6. WYKRESY ───
         try:
