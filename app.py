@@ -437,7 +437,9 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
             progress.progress(100, text="✅ Analiza zakończona!")
 
             if isinstance(results, dict) and "html_report" in results:
-                st.success(f"✅ Analiza zakończona pomyślnie — silniki: {len(app.results)}")
+                # Store results and E20 in session_state for re-rendering on radio change
+                st.session_state["cpet_results"] = results
+                st.session_state["cpet_engine_count"] = len(app.results)
 
                 # E20: Training Decision Engine
                 e20_html = ""
@@ -456,36 +458,9 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                         e20_html = _render_e20_html(e20_plan, modality)
                     except Exception as ex:
                         st.warning(f"⚠️ E20: {ex}")
-
-                # Select report based on user choice
-                is_lite = "LITE" in report_type
-                if is_lite and "html_report_lite" in results:
-                    html_content = results["html_report_lite"]
-                    report_label = "LITE"
-                else:
-                    html_content = results["html_report"]
-                    report_label = "PRO"
-                
-                if e20_html:
-                    html_content = html_content.replace("</body>", e20_html + "</body>")
-
-                st.components.v1.html(html_content, height=4000, scrolling=True)
-
-                safe_name = re.sub(r'[^\w\s-]', '', athlete_name or 'raport').replace(' ', '_')
-                filename_html = f"CPET_{report_label}_{safe_name}_{test_date}.html"
-
-                st.download_button(
-                    label=f"💾 Pobierz raport {report_label} (HTML)",
-                    data=html_content,
-                    file_name=filename_html,
-                    mime="text/html",
-                    type="primary",
-                    use_container_width=True
-                )
-
-                if "text_report" in results:
-                    with st.expander("📋 Raport tekstowy (dla trenerów)"):
-                        st.text(results["text_report"])
+                st.session_state["cpet_e20_html"] = e20_html
+                st.session_state["cpet_athlete_name"] = athlete_name
+                st.session_state["cpet_test_date"] = test_date
 
             elif isinstance(results, dict) and "fatal_error" in results:
                 st.error(f"❌ Błąd krytyczny: {results['fatal_error']}")
@@ -503,6 +478,48 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                 os.unlink(tmp_path)
             except Exception:
                 pass
+
+# ═══════════════════════════════════════════════════════════════
+# RENDER REPORT (outside button block — re-renders on radio change)
+# ═══════════════════════════════════════════════════════════════
+if "cpet_results" in st.session_state:
+    results = st.session_state["cpet_results"]
+    e20_html = st.session_state.get("cpet_e20_html", "")
+    _athlete = st.session_state.get("cpet_athlete_name", "raport")
+    _tdate = st.session_state.get("cpet_test_date", "")
+    _eng_count = st.session_state.get("cpet_engine_count", 0)
+
+    st.success(f"✅ Analiza zakończona pomyślnie — silniki: {_eng_count}")
+
+    # Select report based on user choice
+    is_lite = "LITE" in report_type
+    if is_lite and "html_report_lite" in results:
+        html_content = results["html_report_lite"]
+        report_label = "LITE"
+    else:
+        html_content = results["html_report"]
+        report_label = "PRO"
+
+    if e20_html:
+        html_content = html_content.replace("</body>", e20_html + "</body>")
+
+    st.components.v1.html(html_content, height=4000, scrolling=True)
+
+    safe_name = re.sub(r'[^\w\s-]', '', _athlete or 'raport').replace(' ', '_')
+    filename_html = f"CPET_{report_label}_{safe_name}_{_tdate}.html"
+
+    st.download_button(
+        label=f"💾 Pobierz raport {report_label} (HTML)",
+        data=html_content,
+        file_name=filename_html,
+        mime="text/html",
+        type="primary",
+        use_container_width=True
+    )
+
+    if "text_report" in results:
+        with st.expander("📋 Raport tekstowy (dla trenerów)"):
+            st.text(results["text_report"])
 
 st.markdown("---")
 st.markdown(
