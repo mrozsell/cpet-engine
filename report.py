@@ -980,6 +980,7 @@ def compute_profile_scores(ct):
     vo2_pct_pred = g('VO2_pct_predicted') or e15.get('vo2_pct_predicted')
     vo2_class = e15.get('vo2_class_pop', '')
     vo2_class_sport = e15.get('vo2_class_sport_desc', '')
+    sport_class_raw = e15.get('vo2_class_sport', '')  # UNTRAINED/RECREATIONAL/TRAINED/COMPETITIVE/SUB_ELITE/ELITE
     vo2_det = e15.get('vo2_determination', '') or g('vo2_determination', '')
     
     vt1_pct = g('VT1_pct_VO2peak')
@@ -1011,7 +1012,11 @@ def compute_profile_scores(ct):
     try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
     except: pctile_val = 50
     
-    _is_athlete = pctile_val >= 60
+    _is_athlete = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
+    # Sport context label for human-readable texts
+    _sport_label_map = {'ELITE': 'elitarny', 'SUB_ELITE': 'subelitarny', 'COMPETITIVE': 'zawodniczy', 'TRAINED': 'wytrenowany', 'RECREATIONAL': 'rekreacyjny', 'UNTRAINED': 'początkujący'}
+    _sport_lbl = _sport_label_map.get(sport_class_raw, '')
+    _vo2_ctx = f'poziom {_sport_lbl}' if _sport_lbl else f'~{pctile_val:.0f} percentyl populacyjny'
     
     # ═══════════════════════════════════════════════════════
     # CATEGORY SCORING (10 categories, each 0-100)
@@ -1019,7 +1024,15 @@ def compute_profile_scores(ct):
     _cat = {}
     
     # ── 1. VO2max CEILING ──
-    _vo2_sc = min(100, max(0, pctile_val))
+    # Blend population percentile with sport class for balanced scoring
+    _sport_score_map = {'ELITE': 95, 'SUB_ELITE': 85, 'COMPETITIVE': 72, 'TRAINED': 58, 'RECREATIONAL': 38, 'UNTRAINED': 20}
+    _sport_sc = _sport_score_map.get(sport_class_raw, None)
+    if _sport_sc is not None:
+        # Weighted blend: 40% pop percentile + 60% sport level
+        _vo2_sc = min(100, max(0, pctile_val * 0.4 + _sport_sc * 0.6))
+    else:
+        # No sport class available — fall back to pop percentile only
+        _vo2_sc = min(100, max(0, pctile_val))
     _vo2_pp = _sf(vo2_pct_pred)
     if _vo2_pp is not None and _vo2_pp < 85:
         _vo2_sc = min(_vo2_sc, _vo2_pp * 0.9)
@@ -1055,11 +1068,16 @@ def compute_profile_scores(ct):
         _vt1_sc *= 0.8
     
     _vt1_trap = False
-    if pctile_val < 50 and _vt1p >= 70:
-        _vt1_sc *= 0.65
+    # Ceiling trap: high VT1% but low absolute fitness (sport context)
+    if sport_class_raw in ('UNTRAINED', 'RECREATIONAL') and _vt1p >= 70:
+        _vt1_sc *= 0.6
         _vt1_trap = True
-    elif pctile_val < 65 and _vt1p >= 75:
+    elif sport_class_raw == 'TRAINED' and _vt1p >= 78:
         _vt1_sc *= 0.8
+        _vt1_trap = True
+    elif pctile_val < 50 and _vt1p >= 70:
+        # Fallback: no sport class, use pop pctile
+        _vt1_sc *= 0.65
         _vt1_trap = True
     
     _vt1_spd = _sf(vt1_speed, 0)
@@ -1068,7 +1086,7 @@ def compute_profile_scores(ct):
         _vt1_trap = True
     
     if _vt1_trap:
-        _vt1_lim = f'VT1 przy {_vt1p:.0f}% VO₂max wygląda dobrze procentowo, ale absolutna wydolność (VO₂max ~{pctile_val:.0f} percentyl' + (f', VT1 przy {_vt1_spd:.1f} km/h' if _vt1_spd > 0 else '') + ') jest niska. Buduj sufit tlenowy — baza pójdzie w górę automatycznie.'
+        _vt1_lim = f'VT1 przy {_vt1p:.0f}% VO₂max wygląda dobrze procentowo, ale absolutna wydolność ({_vo2_ctx}' + (f', VT1 przy {_vt1_spd:.1f} km/h' if _vt1_spd > 0 else '') + ') jest niska. Buduj sufit tlenowy — baza pójdzie w górę automatycznie.'
         _vt1_sup = ''
     else:
         _vt1_lim = f'Próg tlenowy (VT1) przy {_vt1p:.0f}% VO₂max' + (f' z wąskim gapem VT2-VT1 ({_gap:.0f} bpm)' if _gap < 15 else '') + ' — baza aerobowa wymaga wzmocnienia. Więcej długich, spokojnych treningów w Z2.'
@@ -1116,25 +1134,26 @@ def compute_profile_scores(ct):
     }
     
     # ── 6. CARDIAC / O2 PULSE ──
-    _o2p = _sf(o2p_pct, 100)
-    _o2p_sc = min(100, max(0, _o2p))
-    _traj = str(o2p_trajectory).lower() if o2p_trajectory else ''
-    _ff_v = _sf(o2p_ff)
-    if 'plateau' in _traj or 'flat' in _traj:
-        if _is_athlete and _o2p >= 120:
-            pass
-        else:
-            _o2p_sc *= 0.85
-    if _ff_v is not None and _ff_v < 0.5 and _o2p < 110:
-        _o2p_sc *= 0.9
-    _cat['cardiac'] = {
-        'score': _o2p_sc,
-        'label': 'Serce (O₂ pulse)',
-        'icon': '❤️',
-        'limiter_text': f'O₂ pulse na {_o2p:.0f}% normy' + (' z płaskim przebiegiem' if 'plateau' in _traj or 'flat' in _traj else '') + ' — sugeruje mniejszą objętość wyrzutową serca. Interwały VO₂max i trening wytrzymałościowy poprawią serce sportowe.',
-        'super_text': f'Silne serce sportowe — O₂ pulse na {_o2p:.0f}% normy. Każde uderzenie serca dostarcza dużo tlenu do mięśni.',
-        'tip': 'Interwały VO₂max + długi trening Z2'
-    }
+    _o2p = _sf(o2p_pct)
+    if _o2p is not None:
+        _o2p_sc = min(100, max(0, _o2p))
+        _traj = str(o2p_trajectory).lower() if o2p_trajectory else ''
+        _ff_v = _sf(o2p_ff)
+        if 'plateau' in _traj or 'flat' in _traj:
+            if _is_athlete and _o2p >= 120:
+                pass
+            else:
+                _o2p_sc *= 0.85
+        if _ff_v is not None and _ff_v < 0.5 and _o2p < 110:
+            _o2p_sc *= 0.9
+        _cat['cardiac'] = {
+            'score': _o2p_sc,
+            'label': 'Serce (O\u2082 pulse)',
+            'icon': '\u2764\ufe0f',
+            'limiter_text': f'O\u2082 pulse na {_o2p:.0f}% normy' + (' z p\u0142askim przebiegiem' if 'plateau' in _traj or 'flat' in _traj else '') + ' \u2014 sugeruje mniejsz\u0105 obj\u0119to\u015b\u0107 wyrzutow\u0105 serca. Interwa\u0142y VO\u2082max i trening wytrzyma\u0142o\u015bciowy poprawi\u0105 serce sportowe.',
+            'super_text': f'Silne serce sportowe \u2014 O\u2082 pulse na {_o2p:.0f}% normy. Ka\u017cde uderzenie serca dostarcza du\u017co tlenu do mi\u0119\u015bni.',
+            'tip': 'Interwa\u0142y VO\u2082max + d\u0142ugi trening Z2'
+        }
     
     # ── 7. RECOVERY ──
     _hrr_v = _sf(hrr1, 25)
@@ -1223,12 +1242,15 @@ def compute_profile_scores(ct):
     _vt2_trap = False
     if _vt2p >= 88 and _pc.get('level_by_speed') in ('Sedentary', 'Recreational'):
         _vt2_trap = True
-    elif _vt2p >= 85 and pctile_val < 50:
+    elif _vt2p >= 88 and sport_class_raw in ('UNTRAINED', 'RECREATIONAL'):
+        _vt2_trap = True
+    elif _vt2p >= 85 and sport_class_raw in ('UNTRAINED', 'RECREATIONAL') and pctile_val < 80:
         _vt2_trap = True
     
     if _vt2_trap:
-        _cat['vo2max']['score'] *= 0.8
-        _cat['vo2max']['limiter_text'] = f'Próg wysoki ({_vt2p:.0f}% VO₂max) ale wydolność absolutna niska (~{pctile_val:.0f} percentyl) — prawdziwym limiterem jest niski VO₂max. Buduj sufit tlenowy interwałami i objętością.'
+        _cat['vo2max']['score'] *= 0.75
+        _cat['vt2']['score'] *= 0.8
+        _cat['vo2max']['limiter_text'] = f'Próg wysoki ({_vt2p:.0f}% VO₂max) ale wydolność absolutna niska ({_vo2_ctx}) — prawdziwym limiterem jest niski VO₂max. Buduj sufit tlenowy interwałami i objętością.'
         _cat['vt2']['super_text'] = f'Próg przy {_vt2p:.0f}% VO₂max — dobry stosunek, ale sufit (VO₂max) wymaga podniesienia.'
     
     _econ_mask = False
@@ -1296,6 +1318,129 @@ def compute_profile_scores(ct):
     elif _vt1p >= 50: _aerobic_base = 'Umiarkowana'
     else: _aerobic_base = 'Słaba'
     
+    # ═══════════════════════════════════════════════════════
+    # INTERPRETATIONS (unified text generation)
+    # Each key → ready HTML string or None (=skip)
+    # ═══════════════════════════════════════════════════════
+    _interp = {}
+    _sc = sport_class_raw.upper() if sport_class_raw else ''
+    _sc_pl = vo2_class_sport or _sc  # e.g. "RECREATIONAL (run)"
+    
+    # ── VO₂max interpretation ──
+    # Uses BOTH population percentile AND sport class for balanced assessment
+    try:
+        if _sc in ('ELITE', 'SUB_ELITE'):
+            _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) to <b>poziom elitarny</b> ({_sc_pl}) \u2014 wybitna wydolność tlenowa. \U0001f4aa'
+        elif _sc == 'COMPETITIVE':
+            _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) to <b>poziom zawodniczy</b> ({_sc_pl}) \u2014 solidna baza do dalszego rozwoju.'
+        elif _sc == 'TRAINED':
+            if pctile_val >= 85:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) to <b>dobry poziom sportowy</b> ({_sc_pl}) \u2014 powyżej przeciętnej, solidna baza.'
+            else:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) \u2014 <b>poziom wytrenowany</b> ({_sc_pl}). Regularne treningi przynoszą efekty.'
+        elif _sc == 'RECREATIONAL':
+            if pctile_val >= 80:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) jest <b>powyżej przeciętnej populacyjnej</b>, ale na <b>rekreacyjnym poziomie sportowym</b> ({_sc_pl}). Jest duży potencjał na poprawę treningiem interwałowym i objętościowym.'
+            elif pctile_val >= 40:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) jest <b>w normie</b> ({_sc_pl}) \u2014 jest duży potencjał na poprawę regularnym treningiem.'
+            else:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) wskazuje na <b>potencjał do poprawy</b> \u2014 regularny trening przyniesie szybkie efekty.'
+        elif _sc == 'UNTRAINED':
+            _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) wskazuje na <b>potencjał do poprawy</b> \u2014 systematyczny trening przyniesie szybkie i widoczne efekty.'
+        else:
+            # Fallback — no sport class available, use population only
+            if pctile_val >= 85:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) plasuje Cię <b>powyżej przeciętnej</b> (~{pctile_val:.0f} percentyl).'
+            elif pctile_val >= 40:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) jest <b>w normie</b> \u2014 jest duży potencjał na poprawę regularnym treningiem.'
+            else:
+                _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) wskazuje na <b>potencjał do poprawy</b> \u2014 regularny trening przyniesie szybkie efekty.'
+    except:
+        pass
+    
+    # ── Thresholds (VT2 + VT1 combined) ──
+    try:
+        if _vt2p > 0:
+            if _vt2_trap:
+                # Threshold trap: high % but low absolute → misleading
+                _interp['thresholds'] = f'Progi ustawione wysoko procentowo (VT2 przy {_vt2p:.0f}% VO\u2082max), ale przy <b>niskiej wydolności absolutnej</b> ({_vo2_ctx}). Wysoki % niskiego sufitu nie daje przewagi \u2014 priorytetem jest podniesienie VO\u2082max.'
+            elif _vt2p >= 85:
+                _msg = f'Twoje progi są <b>wysoko ustawione</b> (VT2 przy {_vt2p:.0f}% VO\u2082max)'
+                if _gap >= 25:
+                    _msg += f' z szerokim gapem {_gap:.0f} bpm między progami \u2014 świetna elastyczność stref.'
+                else:
+                    _msg += ' \u2014 możesz utrzymywać wysokie tempo przez długi czas.'
+                _interp['thresholds'] = _msg
+            elif _vt2p >= 75:
+                _interp['thresholds'] = f'Twoje progi są na <b>dobrym poziomie</b> (VT2 przy {_vt2p:.0f}%). Trening tempo i interwały progowe mogą je jeszcze podnieść.'
+            elif _vt2p > 0:
+                _interp['thresholds'] = f'Twoje progi mają <b>przestrzeń do poprawy</b> (VT2 przy {_vt2p:.0f}%). Systematyczny trening w Z3-Z4 pomoże je podnieść.'
+    except:
+        pass
+    
+    # ── VT1 (aerobic base) — only if meaningful ──
+    try:
+        if _vt1p > 0 and _vt1_trap:
+            _spd_info = f', VT1 przy {_vt1_spd:.1f} km/h' if _vt1_spd > 0 else ''
+            _interp['vt1'] = f'VT1 przy {_vt1p:.0f}% VO\u2082max wygląda dobrze procentowo, ale przy <b>niskiej wydolności absolutnej</b> ({_vo2_ctx}{_spd_info}). To \"pozornie dobra\" baza \u2014 buduj sufit tlenowy, baza pójdzie w górę automatycznie.'
+        elif _vt1p > 0 and _vt1p < 55:
+            _interp['vt1'] = f'Baza tlenowa (VT1 przy {_vt1p:.0f}% VO\u2082max) <b>wymaga wzmocnienia</b>. Więcej długich, spokojnych treningów w Z2 pomoże.'
+    except:
+        pass
+    
+    # ── Recovery ──
+    try:
+        if _hrr_v >= 40:
+            _interp['recovery'] = f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 tętno spada szybko po wysiłku (HRR\u2081: {_hrr_v:.0f} bpm/min).'
+        elif _hrr_v >= 25:
+            _interp['recovery'] = f'Regeneracja na <b>dobrym poziomie</b> (HRR\u2081: {_hrr_v:.0f} bpm/min).'
+        elif _hrr_v > 0:
+            _interp['recovery'] = f'Regeneracja <b>wymaga poprawy</b> (HRR\u2081: {_hrr_v:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.'
+    except:
+        pass
+    
+    # ── Economy ──
+    try:
+        if _gz > 0.5:
+            _interp['economy'] = f'Twoja ekonomia ruchu jest <b>ponadprzeciętna</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}.'
+        elif _gz < -0.5:
+            _interp['economy'] = f'Ekonomia ruchu <b>do poprawy</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}. Plyometria i trening siłowy pomogą.'
+        # -0.5 to 0.5 → skip (neutral)
+    except:
+        pass
+    
+    # ── Ventilation ──
+    try:
+        if _slp < 25:
+            _vc = vent_class
+            _interp['ventilation'] = f'Efektywność wentylacyjna <b>wybitna</b> (VE/VCO\u2082 slope: {_slp:.1f}) \u2014 Twoje płuca pracują bardzo ekonomicznie.'
+        elif _slp > 34:
+            _vc = vent_class
+            _interp['ventilation'] = f'Efektywność wentylacyjna <b>wymaga uwagi</b> (VE/VCO\u2082 slope: {_slp:.1f}{", " + _vc if _vc else ""}). Trening oddechowy może pomóc.'
+        # 25-34 → skip (normal range)
+    except:
+        pass
+    
+    # ── Cardiac ──
+    try:
+        if _o2p > 115:
+            _interp['cardiac'] = f'O\u2082 pulse na <b>{_o2p:.0f}% normy</b> \u2014 silne serce sportowe z wysoką objętością wyrzutową.'
+        elif _o2p < 85:
+            _interp['cardiac'] = f'O\u2082 pulse na <b>{_o2p:.0f}% normy</b> \u2014 objętość wyrzutowa serca może być limiterem. Interwały VO\u2082max pomogą.'
+        # 85-115 → skip (normal)
+    except:
+        pass
+    
+    # ── Substrate ──
+    try:
+        if _fat_v >= 0.5:
+            _interp['substrate'] = f'Metabolizm tłuszczowy <b>bardzo dobry</b> (FATmax: {_fat_v * 60:.0f} g/h) \u2014 świetna adaptacja do długich dystansów.'
+        elif _fat_v > 0 and _cop_v < 40:
+            _interp['substrate'] = f'Wczesny crossover CHO/FAT (przy {_cop_v:.0f}% VO\u2082max) \u2014 więcej treningów Z2 i strategia żywieniowa poprawią spalanie tłuszczów.'
+        elif _fat_v > 0 and _fat_v < 0.25:
+            _interp['substrate'] = f'Metabolizm tłuszczowy <b>ograniczony</b> (FATmax: {_fat_v * 60:.0f} g/h). Więcej treningów Z2 i periodyzacja węglowodanów pomogą.'
+    except:
+        pass
     return {
         'categories': _cat,
         'overall': _overall,
@@ -1308,6 +1453,8 @@ def compute_profile_scores(ct):
         'superpower': _superpower,
         'pctile_val': pctile_val,
         'aerobic_base': _aerobic_base,
+        'sport_class': sport_class_raw,
+        'interpretations': _interp,
         'flags': {
             'vt1_ceiling_trap': _vt1_trap,
             'vt2_threshold_trap': _vt2_trap,
@@ -2835,7 +2982,8 @@ class ReportAdapter:
         # =====================================================================
         # GATHER ALL DATA
         # =====================================================================
-        name = v('athlete_name','Sportowiec')
+        _raw_name = v('athlete_name','')
+        name = _raw_name if _raw_name and _raw_name not in ('AUTO','Nieznany Zawodnik','-','') else (v('athlete_id','') if v('athlete_id','') not in ('ID','-','') else 'Sportowiec')
         age = v('age_y'); sex_pl = 'M' if v('sex')=='male' else 'K'
         weight = v('body_mass_kg'); height = v('height_cm')
         protocol = v('protocol_name')
@@ -3663,7 +3811,8 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         # =====================================================================
         # GATHER DATA
         # =====================================================================
-        name = v('athlete_name','Sportowiec')
+        _raw_name = v('athlete_name','')
+        name = _raw_name if _raw_name and _raw_name not in ('AUTO','Nieznany Zawodnik','-','') else (v('athlete_id','') if v('athlete_id','') not in ('ID','-','') else 'Sportowiec')
         age = v('age_y'); sex_pl = 'M' if v('sex')=='male' else 'K'
         weight = v('body_mass_kg'); height = v('height_cm')
         modality = v('modality','run')
@@ -3770,18 +3919,28 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
         # ─── HEADER ───
         _logo_b64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iR8OTUllfeDVGX1dZS1JFUyIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmlld0JveD0iMCAwIDkyOS41MiA3MTIuNDIiPgogIDxkZWZzPgogICAgPHN0eWxlPgogICAgICAuY2xzLTEgewogICAgICAgIHN0cm9rZS13aWR0aDogMS41cHg7CiAgICAgIH0KCiAgICAgIC5jbHMtMSwgLmNscy0yLCAuY2xzLTMsIC5jbHMtNCwgLmNscy01IHsKICAgICAgICBmaWxsOiBub25lOwogICAgICB9CgogICAgICAuY2xzLTEsIC5jbHMtMiwgLmNscy0zLCAuY2xzLTUgewogICAgICAgIHN0cm9rZS1taXRlcmxpbWl0OiAxMDsKICAgICAgfQoKICAgICAgLmNscy0xLCAuY2xzLTUgewogICAgICAgIHN0cm9rZTogI2ZmZmZmZjsKICAgICAgfQoKICAgICAgLmNscy0yIHsKICAgICAgICBzdHJva2U6IHJnYmEoMjU1LDI1NSwyNTUsMC44KTsKICAgICAgfQoKICAgICAgLmNscy0yLCAuY2xzLTMsIC5jbHMtNSB7CiAgICAgICAgc3Ryb2tlLXdpZHRoOiAzcHg7CiAgICAgIH0KCiAgICAgIC5jbHMtMyB7CiAgICAgICAgc3Ryb2tlOiByZ2JhKDI1NSwyNTUsMjU1LDAuNSk7CiAgICAgIH0KCiAgICAgIC5jbHMtNiB7CiAgICAgICAgZmlsbDogI2ZmZmZmZjsKICAgICAgfQoKICAgICAgLmNscy03IHsKICAgICAgICBjbGlwLXBhdGg6IHVybCgjY2xpcHBhdGgtMSk7CiAgICAgIH0KCiAgICAgIC5jbHMtOCB7CiAgICAgICAgY2xpcC1wYXRoOiB1cmwoI2NsaXBwYXRoKTsKICAgICAgfQogICAgPC9zdHlsZT4KICAgIDxjbGlwUGF0aCBpZD0iY2xpcHBhdGgiPgogICAgICA8cGF0aCBjbGFzcz0iY2xzLTQiIGQ9Ik03NTEuODYsMzE5LjkzaC0zNS4wN2wtMjYuMzktNzQuMTQtOC45MywxNi4yNi0zNC45Ni03My40NC0yNS42OCw4OS4xNi0yOS41Ni02NS40Mi0xNS41LDE4LjktNTUuMzMtNjYuNzktNDAuMjYtODIuMDhjNzIuMSw0LjIzLDEzOS4zLDM0LjMyLDE5MC44LDg1LjgyLDQxLjc1LDQxLjc1LDY5LjQzLDkzLjgzLDgwLjY3LDE1MC40N2wuMjEsMS4yNloiLz4KICAgIDwvY2xpcFBhdGg+CiAgICA8Y2xpcFBhdGggaWQ9ImNsaXBwYXRoLTEiPgogICAgICA8cGF0aCBjbGFzcz0iY2xzLTQiIGQ9Ik00MzguNzIsODIuODFsLTEwNS45NCwxNjMuOTUtNDIuMTUtNjEuMDYtMjQuOTIsODEuMjItMzkuMDEsNDguNTctNS44NS0yMy42Ny0xNC41NCwzMS40OC0xLjczLTYuMjgtMjIuMTcsMjkuNTYtMTMuMTIuMDVjNi43Ny02Ny40LDM2LjMtMTI5Ljg5LDg0Ljg0LTE3OC40Myw1MC4wMS01MC4wMiwxMTQuODQtNzkuODUsMTg0LjU5LTg1LjM5WiIvPgogICAgPC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPCEtLSBiZyByZW1vdmVkIC0tPgogIDxnPgogICAgPGc+CiAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNiIgZD0iTTc3Mi40OSw1MjAuODRoLTcuODd2NjguNjdoNS44M2MyLjIzLDAsNC4yLS44Miw1LjktMi40OCwxLjctMS42NSwyLjYtMy42OSwyLjctNi4xMnYtNTMuNTFjMC0xLjg1LS42My0zLjM4LTEuOS00LjU5LTEuMjYtMS4yMS0yLjgyLTEuODctNC42Ny0xLjk3WiIvPgogICAgICA8cGF0aCBjbGFzcz0iY2xzLTYiIGQ9Ik03NzEuNzYsNDIzLjE1aC03LjE0djY2LjYzaDcuODdjMS44NSwwLDMuNC0uNjMsNC42Ny0xLjksMS4yNi0xLjI2LDEuOS0yLjc3LDEuOS00LjUydi01Mi45M2MwLTIuMDQtLjcxLTMuNzQtMi4xMS01LjEtMS40MS0xLjM2LTMuMTMtMi4wOS01LjE4LTIuMTlaIi8+CiAgICAgIDxwYXRoIGNsYXNzPSJjbHMtNiIgZD0iTTY3Mi42MywzNzYuMkg2OS4zMnYyNTguNGg3ODV2LTI1OC40aC0xODEuNjlaTTE0NS43OCw0MjEuMTFoNy4xNGM0Ljg2LDAsNy4yOSwzLjIxLDcuMjksOS42MnY2My4xM2MwLDIuODItLjczLDUuMS0yLjE5LDYuODUtMS40NiwxLjc1LTMuMTYsMi42Mi01LjEsMi42MmgtNy4xNHYtODIuMjNaTTEwNi40Miw2MjAuNDJoLTIyLjkydi0yMzAuMDVoMjIuOTJ2MjMwLjA1Wk0zNTcuOTMsNTgyLjY2YzAsMi43Mi0uNzEsNC45Ni0yLjExLDYuNzEtMS40MSwxLjc1LTMuMTMsMi42Mi01LjE4LDIuNjJzLTMuNjItLjg4LTUuMDMtMi42MmMtMS40MS0xLjc1LTIuMTEtMy45OC0yLjExLTYuNzF2LTkzLjYxYzAtMy41LjctNi4wNSwyLjExLTcuNjUsMS40MS0xLjYsMy4wOC0yLjQxLDUuMDMtMi40MSwyLjA0LDAsMy43Ny44LDUuMTgsMi40MSwxLjQxLDEuNiwyLjExLDQuMTYsMi4xMSw3LjY1djkzLjYxWk0zNTguNzMsNjIwLjQyYzMuOTMtMi4xOCw3LjY1LTUuNzMsMTEuMTYtMTAuNjRsNC43NCwxMC42NGgtMTUuOVpNNDA2LjQ4LDYyMC40MmgtOS4xOXYtMTY5Ljg2aC0yMi42bC0zLjk0LDkuMTljLTQuNzYtNy43OC0xMC44NC0xMS42Ni0xOC4yMy0xMS42NmgtMTUuNDZjLTkuODIsMC0xNy43NywzLjEzLTIzLjg0LDkuNC02LjA4LDYuMjctOS4xMSwxNC4zMS05LjExLDI0LjEzdjEwNi43M2MwLDEwLjYsMy4xMywxOS4wMyw5LjQsMjUuMywyLjk2LDIuOTYsNi4zMiw1LjIxLDEwLjA3LDYuNzhoLTQ0Ljk5YzMuMzUtMS41MSw2LjQ0LTMuNjcsOS4yNi02LjQ4LDYuMDctNi4wNyw5LjExLTEzLjM5LDkuMTEtMjEuOTR2LTM0LjI2aC0zOS4zN3YyNS41MmMwLDIuNzItLjcxLDQuODYtMi4xMSw2LjQyLTEuNDEsMS41Ni0zLjA5LDIuMzMtNS4wMywyLjMzLTQuODYtLjM5LTcuMjktMy4zLTcuMjktOC43NXYtMzguMDVoNTMuOHYtNjYuNjNjMC04LjQ2LTIuOTctMTUuNjUtOC44OS0yMS41OC01LjkzLTUuOTMtMTMuMTItOC44OS0yMS41OC04Ljg5aC0zMi4yMmMtOC4zNiwwLTE1LjUzLDIuOTctMjEuNTEsOC44OS01Ljk4LDUuOTMtOC45NywxMy4xMi04Ljk3LDIxLjU4djExMy40NGMuMTksOC43NSwzLjI4LDE2LjExLDkuMjYsMjIuMDksMi43NSwyLjc1LDUuNzcsNC44NSw5LjA2LDYuMzRoLTc2LjM1di04Ni4wMmgyMC4yN2M1LjczLDAsMTEuMTUtMS4wMiwxNi4yNi0zLjA2LDUuMS0yLjA0LDkuMjYtNS40NywxMi40Ny0xMC4yOCwzLjIxLTQuODEsNC44MS0xMS4zNSw0LjgxLTE5LjYxdi03Ny4yOGMwLTcuNjgtMS42My0xNC4wNS00Ljg4LTE5LjEtMy4yNi01LjA1LTcuNDktOC44LTEyLjY5LTExLjIzLTQuMTEtMS45Mi04LjQyLTMuMDctMTIuOTMtMy40N2gyMzcuNHYyMzAuMDVaTTI0My4xOCw1MTQuMTR2LTI1LjY2YzAtMi43Mi43LTQuOTgsMi4xMS02Ljc4LDEuNDEtMS44LDMuMTMtMi43LDUuMTgtMi43czMuNjIuOSw1LjAzLDIuN2MxLjQxLDEuOCwyLjExLDQuMDYsMi4xMSw2Ljc4djI1LjY2aC0xNC40NFpNNDQ1Ljg1LDYyMC40MnYtNjAuMDdsLjczLTEuMzEsMjAuOTQsNjEuMzhoLTIxLjY3Wk01MjIuNTIsNjIwLjQyaC05LjgxbC00MC4wNC0xMDIuMjEsMzcuNDctNjcuNjVoLTQ1LjQ5bC0xOC44MSwzOS41MXYtOTkuN2g3Ni42N3YyMzAuMDVaTTYxMS43Niw2MjAuNTdoLTY5Ljk5di0yMzAuMzdoMzkuMzd2MTk5LjMxaDMwLjYydjMxLjA2Wk02ODIuOTEsNjIwLjI4bC00LjUyLTU3LjQ1aDBsLTEwLjA2LTEyNy43Mi0xMC4wNiwxMjcuNzJoMGwtNC41Miw1Ny40NWgtMzkuMDhsMjMuNjItMjMwLjM3aDYwLjA3bDIzLjQ3LDIzMC4zN2gtMzguOTNaTTgxOC40Miw0NzguMjdjMCw2LjktMS4wNywxMi40Mi0zLjIxLDE2LjU1LTIuMTQsNC4xMy01LjA4LDcuMTItOC44Miw4Ljk3LTMuNzQsMS44NS04LjA0LDIuNzctMTIuOSwyLjc3LDQuNTcsMCw4Ljc1Ljk3LDEyLjU0LDIuOTIsMy43OSwxLjk1LDYuOCw1LjEzLDkuMDQsOS41NSwyLjIzLDQuNDIsMy4zNSwxMC4yMywzLjM1LDE3LjQydjUxLjAzYzAsMjEuNDgtMTAuMjYsMzIuNTEtMzAuNzcsMzMuMWgtNjIuNHYtMjI4LjQ4aDY0LjU5YzcuODcsMCwxNC42LDIuOCwyMC4xOSw4LjM4LDUuNTksNS41OSw4LjM4LDEyLjM3LDguMzgsMjAuMzR2NTcuNDVaIi8+CiAgICA8L2c+CiAgICA8cmVjdCBjbGFzcz0iY2xzLTMiIHg9IjY5LjMyIiB5PSIzNzYuMiIgd2lkdGg9Ijc4NSIgaGVpZ2h0PSIyNTguNCIvPgogICAgPGcgY2xhc3M9ImNscy04Ij4KICAgICAgPGc+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMzcuMTQiIHgyPSI3ODYuNzIiIHkyPSIzNy4xNCIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjQzLjY2IiB4Mj0iNzg2LjcyIiB5Mj0iNDMuNjYiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSI1MC4xNyIgeDI9Ijc4Ni43MiIgeTI9IjUwLjE3Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iNTYuNjkiIHgyPSI3ODYuNzIiIHkyPSI1Ni42OSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjYzLjIiIHgyPSI3ODYuNzIiIHkyPSI2My4yIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iNjkuNzIiIHgyPSI3ODYuNzIiIHkyPSI2OS43MiIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9Ijc2LjIzIiB4Mj0iNzg2LjcyIiB5Mj0iNzYuMjMiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSI4Mi43NSIgeDI9Ijc4Ni43MiIgeTI9IjgyLjc1Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iODkuMjYiIHgyPSI3ODYuNzIiIHkyPSI4OS4yNiIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9Ijk1Ljc4IiB4Mj0iNzg2LjcyIiB5Mj0iOTUuNzgiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxMDIuMjkiIHgyPSI3ODYuNzIiIHkyPSIxMDIuMjkiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxMDguODEiIHgyPSI3ODYuNzIiIHkyPSIxMDguODEiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxMTUuMzIiIHgyPSI3ODYuNzIiIHkyPSIxMTUuMzIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxMjEuODQiIHgyPSI3ODYuNzIiIHkyPSIxMjEuODQiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxMjguMzUiIHgyPSI3ODYuNzIiIHkyPSIxMjguMzUiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxMzQuODciIHgyPSI3ODYuNzIiIHkyPSIxMzQuODciLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxNDEuMzkiIHgyPSI3ODYuNzIiIHkyPSIxNDEuMzkiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIxNDcuOSIgeDI9Ijc4Ni43MiIgeTI9IjE0Ny45Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTU0LjQyIiB4Mj0iNzg2LjcyIiB5Mj0iMTU0LjQyIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTYwLjkzIiB4Mj0iNzg2LjcyIiB5Mj0iMTYwLjkzIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTY3LjQ1IiB4Mj0iNzg2LjcyIiB5Mj0iMTY3LjQ1Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTczLjk2IiB4Mj0iNzg2LjcyIiB5Mj0iMTczLjk2Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTgwLjQ4IiB4Mj0iNzg2LjcyIiB5Mj0iMTgwLjQ4Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTg2Ljk5IiB4Mj0iNzg2LjcyIiB5Mj0iMTg2Ljk5Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMTkzLjUxIiB4Mj0iNzg2LjcyIiB5Mj0iMTkzLjUxIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMjAwLjAyIiB4Mj0iNzg2LjcyIiB5Mj0iMjAwLjAyIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMjA2LjU0IiB4Mj0iNzg2LjcyIiB5Mj0iMjA2LjU0Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMjEzLjA1IiB4Mj0iNzg2LjcyIiB5Mj0iMjEzLjA1Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMjE5LjU3IiB4Mj0iNzg2LjcyIiB5Mj0iMjE5LjU3Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMjI2LjA4IiB4Mj0iNzg2LjcyIiB5Mj0iMjI2LjA4Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMjMyLjYiIHgyPSI3ODYuNzIiIHkyPSIyMzIuNiIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjIzOS4xMSIgeDI9Ijc4Ni43MiIgeTI9IjIzOS4xMSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjI0NS42MyIgeDI9Ijc4Ni43MiIgeTI9IjI0NS42MyIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjI1Mi4xNCIgeDI9Ijc4Ni43MiIgeTI9IjI1Mi4xNCIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjI1OC42NiIgeDI9Ijc4Ni43MiIgeTI9IjI1OC42NiIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjI2NS4xNyIgeDI9Ijc4Ni43MiIgeTI9IjI2NS4xNyIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjI3MS42OSIgeDI9Ijc4Ni43MiIgeTI9IjI3MS42OSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjQ0Ny42MiIgeTE9IjI3OC4yIiB4Mj0iNzg2LjcyIiB5Mj0iMjc4LjIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIyODQuNzIiIHgyPSI3ODYuNzIiIHkyPSIyODQuNzIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIyOTEuMjMiIHgyPSI3ODYuNzIiIHkyPSIyOTEuMjMiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIyOTcuNzUiIHgyPSI3ODYuNzIiIHkyPSIyOTcuNzUiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzMDQuMjYiIHgyPSI3ODYuNzIiIHkyPSIzMDQuMjYiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzMTAuNzgiIHgyPSI3ODYuNzIiIHkyPSIzMTAuNzgiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzMTcuMjkiIHgyPSI3ODYuNzIiIHkyPSIzMTcuMjkiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzMjMuODEiIHgyPSI3ODYuNzIiIHkyPSIzMjMuODEiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzMzAuMzIiIHgyPSI3ODYuNzIiIHkyPSIzMzAuMzIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzMzYuODQiIHgyPSI3ODYuNzIiIHkyPSIzMzYuODQiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzNDMuMzUiIHgyPSI3ODYuNzIiIHkyPSIzNDMuMzUiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzNDkuODciIHgyPSI3ODYuNzIiIHkyPSIzNDkuODciLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzNTYuMzgiIHgyPSI3ODYuNzIiIHkyPSIzNTYuMzgiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSI0NDcuNjIiIHkxPSIzNjIuOSIgeDI9Ijc4Ni43MiIgeTI9IjM2Mi45Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iNDQ3LjYyIiB5MT0iMzY5LjQxIiB4Mj0iNzg2LjcyIiB5Mj0iMzY5LjQxIi8+CiAgICAgIDwvZz4KICAgIDwvZz4KICAgIDxnIGNsYXNzPSJjbHMtNyI+CiAgICAgIDxnPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjUwLjE5IiB4Mj0iNDc2LjA0IiB5Mj0iNTAuMTkiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSI1Ni43IiB4Mj0iNDc2LjA0IiB5Mj0iNTYuNyIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjYzLjIyIiB4Mj0iNDc2LjA0IiB5Mj0iNjMuMjIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSI2OS43NCIgeDI9IjQ3Ni4wNCIgeTI9IjY5Ljc0Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iNzYuMjUiIHgyPSI0NzYuMDQiIHkyPSI3Ni4yNSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjgyLjc3IiB4Mj0iNDc2LjA0IiB5Mj0iODIuNzciLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSI4OS4yOCIgeDI9IjQ3Ni4wNCIgeTI9Ijg5LjI4Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iOTUuOCIgeDI9IjQ3Ni4wNCIgeTI9Ijk1LjgiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxMDIuMzEiIHgyPSI0NzYuMDQiIHkyPSIxMDIuMzEiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxMDguODMiIHgyPSI0NzYuMDQiIHkyPSIxMDguODMiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxMTUuMzQiIHgyPSI0NzYuMDQiIHkyPSIxMTUuMzQiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxMjEuODYiIHgyPSI0NzYuMDQiIHkyPSIxMjEuODYiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxMjguMzciIHgyPSI0NzYuMDQiIHkyPSIxMjguMzciLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxMzQuODkiIHgyPSI0NzYuMDQiIHkyPSIxMzQuODkiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIxNDEuNCIgeDI9IjQ3Ni4wNCIgeTI9IjE0MS40Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTQ3LjkyIiB4Mj0iNDc2LjA0IiB5Mj0iMTQ3LjkyIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTU0LjQzIiB4Mj0iNDc2LjA0IiB5Mj0iMTU0LjQzIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTYwLjk1IiB4Mj0iNDc2LjA0IiB5Mj0iMTYwLjk1Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTY3LjQ2IiB4Mj0iNDc2LjA0IiB5Mj0iMTY3LjQ2Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTczLjk4IiB4Mj0iNDc2LjA0IiB5Mj0iMTczLjk4Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTgwLjQ5IiB4Mj0iNDc2LjA0IiB5Mj0iMTgwLjQ5Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTg3LjAxIiB4Mj0iNDc2LjA0IiB5Mj0iMTg3LjAxIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMTkzLjUyIiB4Mj0iNDc2LjA0IiB5Mj0iMTkzLjUyIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMjAwLjA0IiB4Mj0iNDc2LjA0IiB5Mj0iMjAwLjA0Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMjA2LjU1IiB4Mj0iNDc2LjA0IiB5Mj0iMjA2LjU1Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMjEzLjA3IiB4Mj0iNDc2LjA0IiB5Mj0iMjEzLjA3Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMjE5LjU4IiB4Mj0iNDc2LjA0IiB5Mj0iMjE5LjU4Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMjI2LjEiIHgyPSI0NzYuMDQiIHkyPSIyMjYuMSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjIzMi42MSIgeDI9IjQ3Ni4wNCIgeTI9IjIzMi42MSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjIzOS4xMyIgeDI9IjQ3Ni4wNCIgeTI9IjIzOS4xMyIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjI0NS42NCIgeDI9IjQ3Ni4wNCIgeTI9IjI0NS42NCIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjI1Mi4xNiIgeDI9IjQ3Ni4wNCIgeTI9IjI1Mi4xNiIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjI1OC42NyIgeDI9IjQ3Ni4wNCIgeTI9IjI1OC42NyIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjI2NS4xOSIgeDI9IjQ3Ni4wNCIgeTI9IjI2NS4xOSIvPgogICAgICAgIDxsaW5lIGNsYXNzPSJjbHMtMSIgeDE9IjEzNi45NCIgeTE9IjI3MS43IiB4Mj0iNDc2LjA0IiB5Mj0iMjcxLjciLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIyNzguMjIiIHgyPSI0NzYuMDQiIHkyPSIyNzguMjIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIyODQuNzMiIHgyPSI0NzYuMDQiIHkyPSIyODQuNzMiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIyOTEuMjUiIHgyPSI0NzYuMDQiIHkyPSIyOTEuMjUiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIyOTcuNzYiIHgyPSI0NzYuMDQiIHkyPSIyOTcuNzYiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzMDQuMjgiIHgyPSI0NzYuMDQiIHkyPSIzMDQuMjgiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzMTAuNzkiIHgyPSI0NzYuMDQiIHkyPSIzMTAuNzkiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzMTcuMzEiIHgyPSI0NzYuMDQiIHkyPSIzMTcuMzEiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzMjMuODIiIHgyPSI0NzYuMDQiIHkyPSIzMjMuODIiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzMzAuMzQiIHgyPSI0NzYuMDQiIHkyPSIzMzAuMzQiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzMzYuODUiIHgyPSI0NzYuMDQiIHkyPSIzMzYuODUiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzNDMuMzciIHgyPSI0NzYuMDQiIHkyPSIzNDMuMzciLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzNDkuODgiIHgyPSI0NzYuMDQiIHkyPSIzNDkuODgiLz4KICAgICAgICA8bGluZSBjbGFzcz0iY2xzLTEiIHgxPSIxMzYuOTQiIHkxPSIzNTYuNCIgeDI9IjQ3Ni4wNCIgeTI9IjM1Ni40Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMzYyLjkxIiB4Mj0iNDc2LjA0IiB5Mj0iMzYyLjkxIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMzY5LjQzIiB4Mj0iNDc2LjA0IiB5Mj0iMzY5LjQzIi8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMzc1Ljk0IiB4Mj0iNDc2LjA0IiB5Mj0iMzc1Ljk0Ii8+CiAgICAgICAgPGxpbmUgY2xhc3M9ImNscy0xIiB4MT0iMTM2Ljk0IiB5MT0iMzgyLjQ2IiB4Mj0iNDc2LjA0IiB5Mj0iMzgyLjQ2Ii8+CiAgICAgIDwvZz4KICAgIDwvZz4KICAgIDxwb2x5bGluZSBjbGFzcz0iY2xzLTMiIHBvaW50cz0iMTA2LjQyIDM0Ni44NiAyNDEuMzQgMzQ2LjM4IDI5MC42MyAxODUuNzEgMzMyLjc5IDI0Ni43NyA0NjIuNDEgNDYuMTUgNjI0LjUgMzc2LjYzIDY4My42MiAzMjEuODcgNjk3LjE5IDM0My42OCA4MTguNDIgMzQzLjY4Ii8+CiAgICA8cGF0aCBjbGFzcz0iY2xzLTIiIGQ9Ik04MTguNDIsMzE5Ljk0aC0xMDkuMzlsLTYyLjUxLTEzMS4zMi0yNS42OCw4OS4xNi0yOS41Ni02NS40Mi0xNS41MSwxOC45LTkzLjUyLTExMi45LTU5LjEyLDExNC4zNi03LjI3LTE5LjM4cy01NS44NiwxMDcuMS02OC41OSwxMzIuMjljLTEzLjM4LTIyLjg1LTYwLjMxLTEwNS4xNS02MC4zMS0xMDUuMTVsLTc3LjA1LDk1Ljk0LTUuMzMtMTkuMzgtMjkuMDcsMzguNzdoLTY5LjEiLz4KICAgIDxwb2x5bGluZSBjbGFzcz0iY2xzLTUiIHBvaW50cz0iMTA2LjQyIDM2NSAxODcuMDQgMzY1IDIyMC44NSAyOTEuODMgMjMyIDMzNi45IDMwMC44MSAyMjYuNDEgMzI2Ljk3IDI5NC4yNSA0NDIuMyAxNDQuNTIgNTE2LjQ0IDI5OS41OCA1NTAuODUgMjM3LjA3IDYzNi4xMyAzNDQuNjUgNjkwLjQgMjQ1LjggNzIwLjkzIDMzMS41NyA4MTguNDIgMzMxLjU3Ii8+CiAgPC9nPgo8L3N2Zz4="
-        h += f'''<div style="padding:20px 24px;background:linear-gradient(135deg,#1e293b 0%,#334155 50%,#475569 100%);border-radius:16px;color:white;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;">
-  <div>
-    <div style="font-size:13px;color:#94a3b8;margin-bottom:2px;">Raport z badania wydolnościowego</div>
-    <div style="font-size:26px;font-weight:700;margin-bottom:6px;">{esc(name)}</div>
-    <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#cbd5e1;">
-      <span>📅 {test_date}</span>
-      <span>🏃 {"Bieżnia" if modality=="run" else "Rower"}</span>
-      <span>⏱️ Czas: {dur_str}</span>
-      <span>❤️ HR max: {_n(hr_peak,".0f","-")} bpm</span>
+        h += f'''<div style="padding:20px 24px;background:linear-gradient(135deg,#1e293b 0%,#334155 50%,#475569 100%);border-radius:16px;color:white;margin-bottom:18px;position:relative;overflow:hidden;">
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <div style="flex:1;min-width:0;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <span style="font-size:11px;color:#94a3b8;letter-spacing:0.5px;text-transform:uppercase;">Raport z badania wydolnościowego</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;margin-bottom:4px;letter-spacing:-0.5px;">{esc(name)}</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#cbd5e1;margin-bottom:8px;">
+        <span>\U0001f4c5 {test_date}</span>
+        <span>\U0001f3c3 {"Bieżnia" if modality=="run" else "Rower"}</span>
+        <span>\u23f1\ufe0f Czas: {dur_str}</span>
+        <span>\u2764\ufe0f HR max: {_n(hr_peak,".0f","-")} bpm</span>
+      </div>
+      <div style="display:flex;gap:14px;font-size:11px;">
+        <a href="https://www.peaklab.com.pl" target="_blank" style="color:#93c5fd;text-decoration:none;display:inline-flex;align-items:center;gap:4px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>www.peaklab.com.pl</a>
+        <a href="https://www.instagram.com/peak_lab_" target="_blank" style="color:#93c5fd;text-decoration:none;display:inline-flex;align-items:center;gap:4px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>@peak_lab_</a>
+      </div>
+    </div>
+    <div style="flex-shrink:0;margin-left:16px;">
+      <img src="data:image/svg+xml;base64,{_logo_b64}" style="height:90px;max-height:90px;opacity:0.9;" alt="PeakLab">
     </div>
   </div>
-  <img src="data:image/svg+xml;base64,{_logo_b64}" style="height:60px;opacity:0.9;" alt="Logo">
 </div>'''
 
         # ─── 1. TWÓJ WYNIK ───
@@ -3802,13 +3961,13 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         <div style="flex:20;background:#dc2626;"></div><div style="flex:20;background:#ea580c;"></div>
         <div style="flex:15;background:#eab308;"></div><div style="flex:15;background:#22c55e;"></div>
         <div style="flex:15;background:#3b82f6;"></div><div style="flex:15;background:#7c3aed;"></div>
-        <div style="position:absolute;left:{min(97,max(3,pctile_val))}%;top:-3px;font-size:20px;transform:translateX(-50%);">\u25bc</div>
+        <div style="position:absolute;left:{min(97,max(3,_overall))}%;top:-3px;font-size:20px;transform:translateX(-50%);">\u25bc</div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;">
         <span>S\u0142aby</span><span>Przeci\u0119tny</span><span>Dobry</span><span>Bardzo dobry</span><span>Elitarny</span>
       </div>
       <div style="font-size:12px;color:#475569;margin-top:6px;">
-        Kategoria: <b>{esc(str(vo2_class))}</b> (~{_n(vo2_pctile,".0f","?")} percentyl)
+        Kategoria: <b>{esc(str(vo2_class))}</b> (~{_n(vo2_pctile,".0f","?")} percentyl populacyjny){f' | Sportowo: <b>{esc(vo2_class_sport)}</b>' if vo2_class_sport else ''}
       </div>
     </div>
   </div>
@@ -3997,96 +4156,16 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += '<div class="section-title"><span class="section-icon">\U0001f4a1</span>Co oznaczaj\u0105 Twoje wyniki</div>'
         h += '<div style="font-size:13px;color:#334155;line-height:1.8;">'
         
-        _interp = []
-        
-        # VO2max — from E15 normalization engine
-        try:
-            _vo2v = float(vo2_rel) if vo2_rel else 0
-            _vo2_cls = vo2_class_sport or vo2_class or ''
-            if pctile_val >= 85:
-                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) plasuje Ci\u0119 w <b>czo\u0142\u00f3wce</b> ({_vo2_cls}) \u2014 to poziom sportowy. \U0001f4aa')
-            elif pctile_val >= 65:
-                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>powy\u017cej przeci\u0119tnej</b> ({_vo2_cls}) \u2014 dobra baza do dalszego rozwoju.')
-            elif pctile_val >= 40:
-                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>w normie</b> \u2014 jest du\u017cy potencja\u0142 na popraw\u0119 regularnym treningiem.')
-            else:
-                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) wskazuje na <b>potencja\u0142 do poprawy</b> \u2014 regularny trening przyniesie szybkie efekty.')
-        except: pass
-        
-        # Thresholds — from E02/E16 threshold engines
-        try:
-            _vt2p_i = _sf(vt2_pct, 0)
-            _vt1p_i = _sf(vt1_pct, 0)
-            _gap_i = _sf(thr_gap, 0)
-            if _vt2p_i >= 85:
-                _msg = f'Twoje progi s\u0105 <b>wysoko ustawione</b> (VT2 przy {_vt2p_i:.0f}% VO\u2082max)'
-                if _gap_i >= 25:
-                    _msg += f' z szerokim gapem {_gap_i:.0f} bpm mi\u0119dzy progami \u2014 \u015bwietna elastyczno\u015b\u0107 stref.'
-                else:
-                    _msg += ' \u2014 mo\u017cesz utrzymywa\u0107 wysokie tempo przez d\u0142ugi czas.'
-                _interp.append(_msg)
-            elif _vt2p_i >= 75:
-                _interp.append(f'Twoje progi s\u0105 na <b>dobrym poziomie</b> (VT2 przy {_vt2p_i:.0f}%). Trening tempo i interwa\u0142y progowe mog\u0105 je jeszcze podnie\u015b\u0107.')
-            elif _vt2p_i > 0:
-                _interp.append(f'Twoje progi maj\u0105 <b>przestrze\u0144 do poprawy</b> (VT2 przy {_vt2p_i:.0f}%). Systematyczny trening w Z3-Z4 pomo\u017ce je podnie\u015b\u0107.')
-        except: pass
-        
-        # Ventilation — from E03 VentSlope engine
-        try:
-            _slp_i = _sf(ve_vco2_slope)
-            if _slp_i is not None:
-                _vc = e03.get('ventilatory_class', '') if e03 else ''
-                if _slp_i < 25:
-                    _interp.append(f'Efektywno\u015b\u0107 wentylacyjna <b>wybitna</b> (VE/VCO\u2082 slope: {_slp_i:.1f}) \u2014 Twoje p\u0142uca pracuj\u0105 bardzo ekonomicznie.')
-                elif _slp_i > 34:
-                    _interp.append(f'Efektywno\u015b\u0107 wentylacyjna <b>wymaga uwagi</b> (VE/VCO\u2082 slope: {_slp_i:.1f}{", " + _vc if _vc else ""}). Trening oddechowy mo\u017ce pom\u00f3c.')
-        except: pass
-        
-        # Recovery — from E08 CardioHRR engine
-        try:
-            _hrr_val = _sf(hrr1, 0)
-            if _hrr_val >= 40:
-                _interp.append(f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 t\u0119tno spada szybko po wysi\u0142ku (HRR\u2081: {_hrr_val:.0f} bpm/min).')
-            elif _hrr_val >= 25:
-                _interp.append(f'Regeneracja na <b>dobrym poziomie</b> (HRR\u2081: {_hrr_val:.0f} bpm/min).')
-            elif _hrr_val > 0:
-                _interp.append(f'Regeneracja mo\u017ce by\u0107 <b>lepsza</b> (HRR\u2081: {_hrr_val:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.')
-        except: pass
-        
-        # Economy — from E06 Gain engine
-        try:
-            _gz_i = _sf(gain_z)
-            _re_i = _sf(re_mlkgkm)
-            if _gz_i is not None:
-                if _gz_i > 0.5:
-                    _interp.append(f'Twoja ekonomia ruchu jest <b>ponadprzeci\u0119tna</b> (z-score: {_gz_i:+.1f}){" \u2014 RE: " + str(int(_re_i)) + " ml/kg/km" if _re_i else ""}.')
-                elif _gz_i < -0.5:
-                    _interp.append(f'Ekonomia ruchu <b>do poprawy</b> (z-score: {_gz_i:+.1f}){" \u2014 RE: " + str(int(_re_i)) + " ml/kg/km" if _re_i else ""}. Plyometria i trening si\u0142owy pomog\u0105.')
-        except: pass
-        
-        # Cardiac — from E05 O2Pulse engine
-        try:
-            _o2p_i = _sf(o2p_pct)
-            if _o2p_i is not None and _o2p_i > 115:
-                _interp.append(f'O\u2082 pulse na <b>{_o2p_i:.0f}% normy</b> \u2014 silne serce sportowe z wysok\u0105 obj\u0119to\u015bci\u0105 wyrzutow\u0105.')
-            elif _o2p_i is not None and _o2p_i < 85:
-                _interp.append(f'O\u2082 pulse na <b>{_o2p_i:.0f}% normy</b> \u2014 obj\u0119to\u015b\u0107 wyrzutowa serca mo\u017ce by\u0107 limiterem. Interwa\u0142y VO\u2082max pomog\u0105.')
-        except: pass
-        
-        # Substrate — from E10 Substrate engine
-        try:
-            _fat_i = _sf(fatmax, 0)
-            _cop_i = _sf(cop_pct_vo2)
-            if _fat_i >= 0.5:
-                _interp.append(f'Metabolizm t\u0142uszczowy <b>bardzo dobry</b> (FATmax: {_fat_i * 60:.0f} g/h) \u2014 \u015bwietna adaptacja do d\u0142ugich dystans\u00f3w.')
-            elif _cop_i is not None and _cop_i < 40:
-                _interp.append(f'Wczesny crossover CHO/FAT (przy {_cop_i:.0f}% VO\u2082max) \u2014 wi\u0119cej trening\u00f3w Z2 i strategia \u017cywieniowa poprawi\u0105 spalanie t\u0142uszcz\u00f3w.')
-        except: pass
-        
-        for line in _interp:
-            h += f'<p style="margin-bottom:8px;">{line}</p>'
-        
-        if not _interp:
+        # Unified interpretations from _profile (single source of truth)
+        _interp_texts = _profile.get('interpretations', {})
+        _interp_order = ['vo2max', 'thresholds', 'vt1', 'recovery', 'economy', 'ventilation', 'cardiac', 'substrate']
+        _has_any = False
+        for _ik in _interp_order:
+            _itxt = _interp_texts.get(_ik)
+            if _itxt:
+                h += f'<p style="margin-bottom:8px;">{_itxt}</p>'
+                _has_any = True
+        if not _has_any:
             h += '<p>Brak wystarczaj\u0105cych danych do pe\u0142nej interpretacji.</p>'
         
         h += '</div></div>'
