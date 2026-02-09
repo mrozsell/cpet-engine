@@ -2134,6 +2134,15 @@ class ReportAdapter:
         if _pc:
             ct['_performance_context'] = _pc
 
+        # ── UNIFIED PROFILE SCORING (computed once, used by all reports) ──
+        try:
+            ct['_profile'] = compute_profile_scores(ct)
+            # Override aerobic_base with ceiling-trap-aware version
+            if ct['_profile'] and ct['_profile'].get('aerobic_base'):
+                ct['_interp_aerobic_base'] = ct['_profile']['aerobic_base']
+        except Exception:
+            ct['_profile'] = None
+
         return ct
 
     @staticmethod
@@ -3062,8 +3071,8 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
         except: pctile_val = 50
         
-        # ── UNIFIED PROFILE SCORING (shared with LITE) ──
-        _profile_pro = compute_profile_scores(ct)
+        # ── UNIFIED PROFILE SCORING (computed in build_canon_table) ──
+        _profile_pro = ct.get('_profile') or compute_profile_scores(ct)  # fallback
         _overall_score = _profile_pro['overall']
         _overall_grade = _profile_pro['grade_letter']
         _hrr_gauge_score = _profile_pro['gauge_scores']['recovery']
@@ -3722,13 +3731,13 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         except: pctile_val = 50
         
         # =====================================================================
-        # UNIFIED PROFILE SCORING (single source of truth)
+        # UNIFIED PROFILE SCORING (computed in build_canon_table)
         # =====================================================================
         def _sf(val, default=None):
             try: return float(val) if val not in (None, '', '-', '[BRAK]', 'None', 'nan') else default
             except: return default
         
-        _profile = compute_profile_scores(ct)
+        _profile = ct.get('_profile') or compute_profile_scores(ct)  # fallback if not pre-computed
         _cat = _profile['categories']
         _overall = _profile['overall']
         _grade = _profile['grade']
