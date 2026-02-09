@@ -7075,7 +7075,11 @@ class Engine_E13_Drift_v2:
         change_total = o2p_late - o2p_early
 
         if change_mid_to_late < -0.5:
-            trajectory = 'DECLINING'
+            # Distinguish true decline from normal CV decoupling at high intensity
+            if change_total >= -0.5:
+                trajectory = 'CV_DECOUPLING'  # peaked mid-test, small late drop = normal supra-VT2
+            else:
+                trajectory = 'DECLINING'      # true decline: late < early = SV limitation concern
         elif abs(change_mid_to_late) <= 0.5 and o2p_late > o2p_early * 0.95:
             trajectory = 'PLATEAU'
         elif change_total > 1.0:
@@ -7085,8 +7089,11 @@ class Engine_E13_Drift_v2:
 
         # Clinical significance
         # Declining O2 pulse in 2nd half = SV limitation (ischemia, valve)
+        # CV_DECOUPLING = normal physiological response above VT2
         clinical = 'NORMAL'
-        if trajectory == 'DECLINING' and abs(change_mid_to_late) > 1.0:
+        if trajectory == 'CV_DECOUPLING':
+            clinical = 'NORMAL_DECOUPLING'
+        elif trajectory == 'DECLINING' and abs(change_mid_to_late) > 1.0:
             clinical = 'SV_LIMITATION'
         elif trajectory == 'PLATEAU' and change_early_to_mid < 0.5:
             clinical = 'EARLY_PLATEAU'
@@ -9886,6 +9893,8 @@ class Engine_E19_Concordance:
         if o2p_traj and slope_class:
             if o2p_traj == 'RISING' and slope_class in ('VERY_LOW', 'LOW_HIGH_SV'):
                 sv_note = 'Rising O2P + low slope = high SV (concordant)'; c_score += 15
+            elif o2p_traj == 'CV_DECOUPLING':
+                sv_note = 'CV decoupling above VT2 — normal physiological response'; c_score += 13
             elif o2p_traj in ('FLAT', 'DECLINING') and slope_class in ('VERY_LOW', 'LOW_HIGH_SV'):
                 concordant_sv = False; sv_note = 'Flat/declining O2P + low slope = discordant (SV issue?)'
                 cf.append('O2P_SLOPE_DISCORDANT')

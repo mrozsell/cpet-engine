@@ -1119,6 +1119,8 @@ def compute_profile_scores(ct):
     _gz = _sf(gain_z, 0)
     _re_v = _sf(re_mlkgkm)
     _re_info = f' (RE: {_re_v:.0f} ml/kg/km)' if _re_v else ''
+    _e06_flags = e06.get('flags', []) if isinstance(e06, dict) else []
+    _e06_no_data = 'INSUFFICIENT_DATA' in _e06_flags and not _re_v and not _gz
     
     # RE-based scoring for running (lower RE = better economy)
     if modality == 'run' and _re_v and _re_v > 0:
@@ -1155,13 +1157,18 @@ def compute_profile_scores(ct):
         'rowing': 'Technika wioślarstwa + siła + rate control',
     }
     _econ_tip = _econ_tip_map.get(modality, 'Trening techniczny + siła specjalna')
+    if _e06_no_data:
+        _econ_lim = f'Brak danych prędkości/mocy w pliku CPET — ekonomia ruchu nie mogła być obiektywnie oceniona. Wynik neutralny (50/100). Aby uzyskać pełną analizę, wykonaj test z pomiarem prędkości lub mocy.'
+        _econ_sup = _econ_lim
+        _econ_tip = 'Powtórz test z pomiarem prędkości/mocy'
     _cat['economy'] = {
         'score': _econ_sc,
         'label': _econ_label,
         'icon': '⚙️',
         'limiter_text': _econ_lim,
         'super_text': _econ_sup,
-        'tip': _econ_tip
+        'tip': _econ_tip,
+        'no_data': _e06_no_data
     }
     
     # ── 5. VENTILATORY EFFICIENCY ──
@@ -3020,7 +3027,7 @@ class ReportAdapter:
                 'LOW_HIGH_SLOPE':'NISKI↑','HIGH_SLOPE':'WYSOKI↑',
                 'VERY_SLOW':'B.WOLNY','VERY_GOOD':'B.DOBRY','VERY_WIDE':'B.SZEROKI',
                 'BF_DOMINANT':'BF-DOM.','VT_DOMINANT':'VT-DOM.',
-                'DECLINING':'SPADEK','AFTER_VT2':'PO VT2','BEFORE_VT2':'PRZED VT2',
+                'DECLINING':'SPADEK','CV_DECOUPLING':'DECOUPL.','NORMAL_DECOUPLING':'NORM.DECOUPL.','AFTER_VT2':'PO VT2','BEFORE_VT2':'PRZED VT2',
                 'AFTER_VT1':'PO VT1','BEFORE_VT1':'PRZED VT1','NONE':'BRAK',
                 'MILD_ABNORMALITY':'ŁAGODNA ANOM.','EXCELLENT':'DOSKONAŁA',
                 'RISING':'ROSNĄCY','INCREASING':'ROSNĄCY','NORMAL':'NORMA',
