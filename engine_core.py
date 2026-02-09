@@ -9233,7 +9233,7 @@ class Engine_E16_Zones_v2:
     def _build_speed_interpolator(cls, df_ex: pd.DataFrame):
         """Build HR→Speed function from exercise data."""
         hr_col = next((c for c in ['HR_bpm', 'hr_bpm', 'HR'] if c in df_ex.columns), None)
-        spd_col = next((c for c in ['speed_km_h', 'Speed_km_h', 'speed_kmh',
+        spd_col = next((c for c in ['Speed_kmh', 'speed_km_h', 'Speed_km_h', 'speed_kmh',
                                      'speed', 'Speed'] if c in df_ex.columns), None)
         if not hr_col or not spd_col:
             return None
