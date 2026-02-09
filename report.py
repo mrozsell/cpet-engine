@@ -3314,7 +3314,9 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         fatmax = e10.get('mfo_gmin'); fatmax_hr = e10.get('fatmax_hr')
         fatmax_pct_vo2 = e10.get('fatmax_pct_vo2peak')
         fatmax_zone_lo = e10.get('fatmax_zone_hr_low'); fatmax_zone_hi = e10.get('fatmax_zone_hr_high')
-        cop_pct_vo2 = g('COP_pct_vo2peak')
+        cop_pct_vo2 = g('COP_pct_vo2peak') or e10.get('cop_pct_vo2peak')
+        cop_hr = e10.get('cop_hr')
+        zone_sub = e10.get('zone_substrate', {})
         
         e08 = g('_e08_raw',{})
         hrr1 = e08.get('hrr_1min')
@@ -3745,23 +3747,87 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         
         h += '</div>'
 
-        # ─── 4. SPALANIE TŁUSZCZÓW ───
-        if fatmax:
+        # ─── 4. METABOLIZM LIPIDÓW ───
+        if fatmax or zone_sub:
             try:
-                _fatmax_gh = float(fatmax) * 60
+                _fatmax_gh = float(fatmax) * 60 if fatmax else 0
             except:
                 _fatmax_gh = 0
+            
+            # FATmax + Crossover summary row
+            _cop_hr_s = f' | HR {int(cop_hr)} bpm' if cop_hr else ''
+            _cop_txt = f'{_n(cop_pct_vo2,".0f")}% VO\u2082max{_cop_hr_s}' if cop_pct_vo2 else '\u2014'
+            
             h += f'''<div class="card">
-  <div class="section-title"><span class="section-icon">\U0001f525</span>Spalanie t\u0142uszcz\u00f3w</div>
-  <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-    <div style="text-align:center;">
-      <div style="font-size:36px;font-weight:700;color:#16a34a;">{_fatmax_gh:.0f}</div>
-      <div style="font-size:12px;color:#64748b;">g/h (FATmax)</div>
+  <div class="section-title"><span class="section-icon">\u26fd</span>Metabolizm lipid\u00f3w</div>
+  <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:160px;padding:12px;background:#f0fdf4;border-radius:10px;border-left:4px solid #16a34a;text-align:center;">
+      <div style="font-size:11px;color:#475569;font-weight:600;">FATmax</div>
+      <div style="font-size:28px;font-weight:700;color:#16a34a;">{_fatmax_gh:.0f} <span style="font-size:13px;font-weight:500;">g/h</span></div>
+      <div style="font-size:10px;color:#64748b;">HR {_n(fatmax_hr,".0f")} bpm ({_n(fatmax_pct_vo2,".0f")}% VO\u2082max)</div>
+      <div style="font-size:10px;color:#94a3b8;margin-top:2px;">Strefa: {_n(fatmax_zone_lo,".0f")}\u2013{_n(fatmax_zone_hi,".0f")} bpm</div>
     </div>
-    <div style="flex:1;min-width:200px;font-size:13px;color:#334155;line-height:1.7;">
-      Maksymalne spalanie t\u0142uszcz\u00f3w przy <b>HR {_n(fatmax_hr,".0f")} bpm</b> ({_n(fatmax_pct_vo2,".0f")}% VO\u2082max).<br>
-      \U0001f4a1 <b>Strefa FATmax: {_n(fatmax_zone_lo,".0f")}-{_n(fatmax_zone_hi,".0f")} bpm</b> \u2014 trenuj w tej strefie na d\u0142ugich, wolnych biegach.
+    <div style="flex:1;min-width:160px;padding:12px;background:#fff7ed;border-radius:10px;border-left:4px solid #f59e0b;text-align:center;">
+      <div style="font-size:11px;color:#475569;font-weight:600;">Crossover (CHO=FAT)</div>
+      <div style="font-size:28px;font-weight:700;color:#f59e0b;">{_cop_txt}</div>
+      <div style="font-size:10px;color:#64748b;">Powy\u017cej tego \u2014 dominuje glikogen</div>
     </div>
+  </div>'''
+            
+            # Zone substrate table
+            if zone_sub:
+                _zone_names = {'z1': 'Z1 Regeneracja', 'z2': 'Z2 Baza tlenowa', 'z3': 'Z3 Tempo', 'z4': 'Z4 Pr\u00f3g', 'z5': 'Z5 VO\u2082max'}
+                _zone_colors = {'z1': '#94a3b8', 'z2': '#22c55e', 'z3': '#eab308', 'z4': '#f97316', 'z5': '#ef4444'}
+                
+                h += '''<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;">
+  <thead>
+    <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+      <th style="padding:8px 6px;text-align:left;color:#475569;font-weight:600;">Strefa</th>
+      <th style="padding:8px 6px;text-align:center;color:#16a34a;font-weight:600;">\U0001f7e2 FAT g/h</th>
+      <th style="padding:8px 6px;text-align:center;color:#f59e0b;font-weight:600;">\U0001f7e1 CHO g/h</th>
+      <th style="padding:8px 6px;text-align:center;color:#475569;font-weight:600;">FAT %</th>
+      <th style="padding:8px 6px;text-align:center;color:#ef4444;font-weight:600;">\U0001f525 kcal/h</th>
+    </tr>
+  </thead>
+  <tbody>'''
+                
+                for zk in ['z2', 'z3', 'z4', 'z5']:
+                    zs = zone_sub.get(zk, {})
+                    if zs:
+                        _zn = _zone_names.get(zk, zk.upper())
+                        _zc = _zone_colors.get(zk, '#475569')
+                        _fat_gh = _n(zs.get('fat_gh'), '.0f', '\u2014')
+                        _cho_gh = _n(zs.get('cho_gh'), '.0f', '\u2014')
+                        _fat_pct = _n(zs.get('fat_pct'), '.0f', '\u2014')
+                        _kcal = _n(zs.get('kcal_h'), '.0f', '\u2014')
+                        _fat_pct_v = _sf(zs.get('fat_pct'), 0)
+                        # Visual bar for FAT%
+                        _bar_w = max(0, min(100, _fat_pct_v))
+                        _bar_col = '#16a34a' if _fat_pct_v >= 50 else ('#eab308' if _fat_pct_v >= 25 else '#ef4444')
+                        h += f'''<tr style="border-bottom:1px solid #f1f5f9;">
+      <td style="padding:8px 6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{_zc};margin-right:6px;"></span><b>{_zn}</b></td>
+      <td style="padding:8px 6px;text-align:center;color:#16a34a;font-weight:600;">{_fat_gh}</td>
+      <td style="padding:8px 6px;text-align:center;color:#f59e0b;font-weight:600;">{_cho_gh}</td>
+      <td style="padding:8px 6px;text-align:center;">
+        <div style="display:flex;align-items:center;gap:4px;justify-content:center;">
+          <div style="width:40px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;"><div style="width:{_bar_w}%;height:100%;background:{_bar_col};border-radius:3px;"></div></div>
+          <span style="font-size:11px;color:#475569;">{_fat_pct}%</span>
+        </div>
+      </td>
+      <td style="padding:8px 6px;text-align:center;font-weight:600;color:#334155;">{_kcal}</td>
+    </tr>'''
+                
+                h += '</tbody></table>'
+            
+            # Practical tip
+            try:
+                _cho_z3 = float(zone_sub.get('z3', {}).get('cho_gh', 40)) if zone_sub else 40
+                _cho_rec = max(30, int(_cho_z3 * 0.5))
+            except:
+                _cho_rec = 30
+            h += f'''<div style="margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:11px;color:#334155;line-height:1.6;">
+    \U0001f4a1 <b>Praktycznie:</b> W Z2 spalasz wi\u0119cej t\u0142uszcz\u00f3w, w Z4-Z5 zu\u017cywasz g\u0142\u00f3wnie glikogen.
+    Na d\u0142ugich biegach (>60 min) uzupe\u0142niaj <b>{_cho_rec}\u201360 g CHO/h</b> aby unikn\u0105\u0107 "\u015bciany".
   </div>
 </div>'''
 
