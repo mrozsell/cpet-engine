@@ -507,7 +507,6 @@ if "cpet_results" in st.session_state:
     is_lite = "LITE" in report_type
     _lite_html = st.session_state.get("cpet_html_lite")
     has_lite = _lite_html is not None and len(str(_lite_html)) > 100
-    st.caption(f"🔍 Debug: is_lite={is_lite} | has_lite={has_lite} | lite_len={len(str(_lite_html)) if _lite_html else 0}")
     if is_lite and has_lite:
         html_content = _lite_html
         report_label = "LITE"

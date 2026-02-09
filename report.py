@@ -2227,6 +2227,7 @@ class ReportAdapter:
         _has_gas = len(ct.get('_chart_gas_time', [])) > 10
         _has_substrate = len(ct.get('_chart_sub_time', [])) > 10 and max(ct.get('_chart_sub_fat', [0]) or [0]) > 0
         _has_kinetics = len(ct.get('_chart_full_time', [])) > 10
+        _has_protocol = len(ct.get('_chart_protocol_steps', [])) > 0
         
         if not _has_lactate and not _has_nirs and not _has_gas and not _has_substrate and not _has_kinetics and not _has_protocol:
             return ''
@@ -3296,6 +3297,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         vo2_pctile = e15.get('vo2_percentile_approx',50)
         vo2_det = e15.get('vo2_determination','VO2peak')
         vo2_class_sport = e15.get('vo2_class_sport_desc','')
+        vo2_pct_pred = g('VO2_pct_predicted')
         hr_peak = g('HR_peak')
         rer_peak = g('RER_peak')
         
@@ -3305,71 +3307,288 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         
         e16 = g('_e16_raw',{})
         zones_data = e16.get('zones',{})
+        thr_gap = e16.get('threshold_gap_bpm')
+        aer_reserve = e16.get('aerobic_reserve_pct')
         
         e10 = g('_e10_raw',{})
         fatmax = e10.get('mfo_gmin'); fatmax_hr = e10.get('fatmax_hr')
         fatmax_pct_vo2 = e10.get('fatmax_pct_vo2peak')
         fatmax_zone_lo = e10.get('fatmax_zone_hr_low'); fatmax_zone_hi = e10.get('fatmax_zone_hr_high')
+        cop_pct_vo2 = g('COP_pct_vo2peak')
         
         e08 = g('_e08_raw',{})
         hrr1 = e08.get('hrr_1min')
+        hrr3 = e08.get('hrr_3min')
         
         e03 = g('_e03_raw',{})
         ve_vco2_slope = g('VE_VCO2_slope') or e03.get('slope_to_vt2')
+        ve_vco2_nadir = g('VE_VCO2_nadir')
         
         e06 = g('_e06_raw',{})
         gain_z = e06.get('gain_z_score')
+        gain_full = g('GAIN_full')
+        re_mlkgkm = g('RE_mlkgkm')
         
         e05 = g('_e05_raw',{})
         o2p_pct = e05.get('pct_predicted_friend')
+        o2p_trajectory = g('O2pulse_trajectory')
+        o2p_ff = g('O2pulse_ff')
+        
+        e07 = g('_e07_raw',{})
+        bf_peak = e07.get('bf_peak') if e07 else None
+        breathing_strategy = e07.get('strategy','') if e07 else ''
+        breathing_flags = e07.get('flags',[]) if e07 else []
         
         _pc = ct.get('_performance_context', {})
         
         try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
         except: pctile_val = 50
         
-        _hrr_score = 0
-        try:
-            _hrr_val = float(hrr1) if hrr1 else 0
-            if _hrr_val >= 50: _hrr_score = 95
-            elif _hrr_val >= 40: _hrr_score = 85
-            elif _hrr_val >= 30: _hrr_score = 72
-            elif _hrr_val >= 22: _hrr_score = 58
-            elif _hrr_val >= 15: _hrr_score = 42
-            elif _hrr_val > 0: _hrr_score = 25
-        except: pass
+        # =====================================================================
+        # EVIDENCE-BASED LIMITER / SUPERPOWER SYSTEM (10 categories)
+        # =====================================================================
+        # Each category: score 0-100 (higher = better)
+        # Limiter = category with LOWEST score
+        # Superpower = category with HIGHEST score
         
-        _vt2_score = 0
-        try:
-            _vt2p = float(vt2_pct) if vt2_pct else 75
-            _vt2_score = max(0, min(100, (_vt2p - 60) / 40 * 100))
-        except: pass
+        _cat = {}  # {name: {score, label_pl, icon, limiter_text, super_text, tip}}
         
-        _vent_score = 65
-        try:
-            _slp = float(ve_vco2_slope) if ve_vco2_slope else 30
-            if _slp < 25: _vent_score = 95
-            elif _slp < 28: _vent_score = 80
-            elif _slp < 30: _vent_score = 68
-            elif _slp < 34: _vent_score = 50
-            else: _vent_score = 30
-        except: pass
+        # Helper: safe float
+        def _sf(val, default=None):
+            try: return float(val) if val not in (None, '', '-', '[BRAK]', 'None', 'nan') else default
+            except: return default
         
-        _econ_score = 50
-        try:
-            _gz = float(gain_z) if gain_z else 0
-            _econ_score = min(100, max(0, 50 + _gz * 20))
-        except: pass
+        _is_athlete = pctile_val >= 60  # sport context threshold
+        
+        # ── 1. VO2max CEILING ──
+        _vo2_sc = min(100, max(0, pctile_val))
+        _vo2_pp = _sf(vo2_pct_pred)
+        if _vo2_pp is not None and _vo2_pp < 85:
+            _vo2_sc = min(_vo2_sc, _vo2_pp * 0.9)  # low %predicted penalizes more
+        _vo2_v = _sf(vo2_rel, 0)
+        _cat['vo2max'] = {
+            'score': _vo2_sc,
+            'label': 'Wydolno\u015b\u0107 tlenowa',
+            'icon': '\U0001f3cb',
+            'limiter_text': f'VO\u2082max ({_vo2_v:.1f} ml/kg/min) ogranicza Twoj\u0105 wydolno\u015b\u0107. Wi\u0119cej trening\u00f3w interwałowych VO\u2082max (3-5 min @ 95-100% HRmax) i zwi\u0119kszenie obj\u0119to\u015bci treningowej pomog\u0105 przebi\u0107 ten sufit.',
+            'super_text': f'VO\u2082max ({_vo2_v:.1f} ml/kg/min, ~{pctile_val:.0f} percentyl) to Tw\u00f3j fundament \u2014 masz silny silnik tlenowy, na kt\u00f3rym mo\u017cesz budowa\u0107 reszt\u0119.',
+            'tip': 'Interwa\u0142y VO\u2082max + obj\u0119to\u015b\u0107 Z2'
+        }
+        
+        # ── 2. VT2 THRESHOLD ──
+        _vt2p = _sf(vt2_pct, 75)
+        _vt2_sc = max(0, min(100, (_vt2p - 60) / 35 * 100))
+        if _is_athlete and _vt2p < 80:
+            _vt2_sc *= 0.85  # stricter for athletes
+        _cat['vt2'] = {
+            'score': _vt2_sc,
+            'label': 'Pr\u00f3g mleczanowy',
+            'icon': '\u26a1',
+            'limiter_text': f'Pr\u00f3g mleczanowy (VT2) przy {_vt2p:.0f}% VO\u2082max \u2014 organizm zaczyna "kwasić si\u0119" relatywnie wcze\u015bnie. Trening tempo (Z3-Z4) i interwa\u0142y progowe podnios\u0105 ten pr\u00f3g.',
+            'super_text': f'Pr\u00f3g mleczanowy (VT2) a\u017c przy {_vt2p:.0f}% VO\u2082max \u2014 mo\u017cesz utrzymywa\u0107 wysokie tempo przez d\u0142ugi czas zanim organizm si\u0119 "zakwasi".',
+            'tip': 'Trening tempo Z3-Z4 + interwa\u0142y SST'
+        }
+        
+        # ── 3. VT1 AEROBIC BASE ──
+        _vt1p = _sf(vt1_pct, 55)
+        _vt1_sc = max(0, min(100, (_vt1p - 40) / 35 * 100))
+        _gap = _sf(thr_gap, 20)
+        if _gap < 12:
+            _vt1_sc *= 0.8  # compressed zones penalty
+        _cat['vt1'] = {
+            'score': _vt1_sc,
+            'label': 'Baza tlenowa',
+            'icon': '\U0001f49a',
+            'limiter_text': f'Pr\u00f3g tlenowy (VT1) przy {_vt1p:.0f}% VO\u2082max' + (f' z w\u0105skim gapem VT2-VT1 ({_gap:.0f} bpm)' if _gap < 15 else '') + ' \u2014 baza aerobowa wymaga wzmocnienia. Wi\u0119cej d\u0142ugich, spokojnych trening\u00f3w w Z2.',
+            'super_text': f'Solidna baza tlenowa \u2014 VT1 przy {_vt1p:.0f}% VO\u2082max' + (f' z szerokim gapem {_gap:.0f} bpm mi\u0119dzy progami' if _gap >= 25 else '') + '. Tw\u00f3j fundament aerobowy jest mocny.',
+            'tip': 'D\u0142ugie biegi Z2 + obj\u0119to\u015b\u0107'
+        }
+        
+        # ── 4. ECONOMY ──
+        _gz = _sf(gain_z, 0)
+        _econ_sc = max(0, min(100, 50 + _gz * 22))
+        _re_v = _sf(re_mlkgkm)
+        _re_info = f' (RE: {_re_v:.0f} ml/kg/km)' if _re_v else ''
+        _cat['economy'] = {
+            'score': _econ_sc,
+            'label': 'Ekonomia ruchu',
+            'icon': '\u2699\ufe0f',
+            'limiter_text': f'Ekonomia ruchu poni\u017cej przeci\u0119tnej (z-score: {_gz:+.1f}){_re_info}. Zu\u017cywasz wi\u0119cej energii ni\u017c powiniene\u015b na danym tempie. Plyometria, trening si\u0142owy i \u0107wiczenia techniczne poprawi\u0105 efektywno\u015b\u0107.',
+            'super_text': f'Doskona\u0142a ekonomia ruchu (z-score: {_gz:+.1f}){_re_info} \u2014 Tw\u00f3j organizm zu\u017cywa mniej energii na danym tempie ni\u017c przeci\u0119tna osoba. To jak oszcz\u0119dny silnik w wyścig\u00f3wce.',
+            'tip': 'Plyometria + trening si\u0142owy + technika'
+        }
+        
+        # ── 5. VENTILATORY EFFICIENCY ──
+        _slp = _sf(ve_vco2_slope, 30)
+        if _slp <= 20: _vent_sc = 98
+        elif _slp <= 25: _vent_sc = 85 + (25 - _slp) / 5 * 13
+        elif _slp <= 28: _vent_sc = 72 + (28 - _slp) / 3 * 13
+        elif _slp <= 30: _vent_sc = 60 + (30 - _slp) / 2 * 12
+        elif _slp <= 34: _vent_sc = 35 + (34 - _slp) / 4 * 25
+        else: _vent_sc = max(5, 35 - (_slp - 34) / 6 * 30)
+        _vent_sc = max(0, min(100, _vent_sc))
+        _cat['ventilation'] = {
+            'score': _vent_sc,
+            'label': 'Wentylacja',
+            'icon': '\U0001f4a8',
+            'limiter_text': f'Efektywno\u015b\u0107 wentylacyjna ograniczona (VE/VCO\u2082 slope: {_slp:.1f}). Oddychasz wi\u0119cej ni\u017c potrzeba na dan\u0105 produkcj\u0119 CO\u2082. Trening oddechowy i praca nad wzorcem oddychania mog\u0105 pom\u00f3c.',
+            'super_text': f'Wyj\u0105tkowo efektywne oddychanie (VE/VCO\u2082 slope: {_slp:.1f}) \u2014 Twoje p\u0142uca doskonale radz\u0105 sobie z wymian\u0105 gazow\u0105 przy minimalnym wysi\u0142ku wentylacyjnym.',
+            'tip': 'Trening oddechowy + technika oddychania'
+        }
+        
+        # ── 6. CARDIAC / O2 PULSE ──
+        _o2p = _sf(o2p_pct, 100)
+        _o2p_sc = min(100, max(0, _o2p))
+        _traj = str(o2p_trajectory).lower() if o2p_trajectory else ''
+        _ff_v = _sf(o2p_ff)
+        if 'plateau' in _traj or 'flat' in _traj:
+            if _is_athlete and _o2p >= 120:
+                pass  # physiologic plateau in high-fit athletes — not a limiter
+            else:
+                _o2p_sc *= 0.85  # penalize early plateau
+        if _ff_v is not None and _ff_v < 0.5 and _o2p < 110:
+            _o2p_sc *= 0.9  # early flattening fraction
+        _cat['cardiac'] = {
+            'score': _o2p_sc,
+            'label': 'Serce (O\u2082 pulse)',
+            'icon': '\u2764\ufe0f',
+            'limiter_text': f'O\u2082 pulse na {_o2p:.0f}% normy' + (' z p\u0142askim przebiegiem' if 'plateau' in _traj or 'flat' in _traj else '') + ' \u2014 sugeruje mniejsz\u0105 obj\u0119to\u015b\u0107 wyrzutow\u0105 serca. Interwa\u0142y VO\u2082max i trening wytrzyma\u0142o\u015bciowy poprawi\u0105 serce sportowe.',
+            'super_text': f'Silne serce sportowe \u2014 O\u2082 pulse na {_o2p:.0f}% normy. Ka\u017cde uderzenie serca dostarcza du\u017co tlenu do mi\u0119\u015bni.',
+            'tip': 'Interwa\u0142y VO\u2082max + d\u0142ugi trening Z2'
+        }
+        
+        # ── 7. RECOVERY ──
+        _hrr_v = _sf(hrr1, 25)
+        if _hrr_v >= 50: _hrr_sc = 95
+        elif _hrr_v >= 40: _hrr_sc = 85 + (_hrr_v - 40) / 10 * 10
+        elif _hrr_v >= 30: _hrr_sc = 70 + (_hrr_v - 30) / 10 * 15
+        elif _hrr_v >= 22: _hrr_sc = 55 + (_hrr_v - 22) / 8 * 15
+        elif _hrr_v >= 15: _hrr_sc = 38 + (_hrr_v - 15) / 7 * 17
+        elif _hrr_v >= 8: _hrr_sc = 15 + (_hrr_v - 8) / 7 * 23
+        else: _hrr_sc = max(5, _hrr_v / 8 * 15)
+        _hrr_sc = max(0, min(100, _hrr_sc))
+        _cat['recovery'] = {
+            'score': _hrr_sc,
+            'label': 'Regeneracja',
+            'icon': '\U0001f504',
+            'limiter_text': f'Regeneracja wymaga poprawy (HRR\u2081: {_hrr_v:.0f} bpm/min). T\u0119tno spada wolno po wysi\u0142ku. Zadbaj o sen, nawodnienie, trening Z1-Z2 i periodyzacj\u0119.',
+            'super_text': f'B\u0142yskawiczna regeneracja (HRR\u2081: {_hrr_v:.0f} bpm/min) \u2014 Tw\u00f3j uk\u0142ad nerwowy i serce szybko wracaj\u0105 do normy po wysi\u0142ku.',
+            'tip': 'Sen + nawodnienie + periodyzacja'
+        }
+        
+        # ── 8. SUBSTRATE / FAT OXIDATION ──
+        _fat_v = _sf(fatmax, 0)
+        _fat_pct = _sf(fatmax_pct_vo2, 45)
+        _cop_v = _sf(cop_pct_vo2, 60)
+        _sub_sc = 50  # default if no data
+        if _fat_v > 0:
+            if _fat_v >= 0.6 and _fat_pct >= 50: _sub_sc = 92
+            elif _fat_v >= 0.45 and _fat_pct >= 45: _sub_sc = 78
+            elif _fat_v >= 0.35 and _fat_pct >= 40: _sub_sc = 65
+            elif _fat_v >= 0.25: _sub_sc = 50
+            else: _sub_sc = 30
+            # Crossover penalty
+            if _cop_v < 40:
+                _sub_sc *= 0.8  # very early crossover
+            elif _cop_v < 50:
+                _sub_sc *= 0.9
+        else:
+            _sub_sc = None  # no data — exclude from ranking
+        
+        if _sub_sc is not None:
+            _cat['substrate'] = {
+                'score': _sub_sc,
+                'label': 'Spalanie t\u0142uszcz\u00f3w',
+                'icon': '\U0001f525',
+                'limiter_text': f'Metabolizm t\u0142uszczowy ograniczony (FATmax: {_fat_v:.2f} g/min' + (f', crossover przy {_cop_v:.0f}% VO\u2082' if _cop_v < 55 else '') + '). Wczesna zale\u017cno\u015b\u0107 od glikogenu skraca dystans. Wi\u0119cej trening\u00f3w Z2 i strategia \u017cywieniowa pomog\u0105.',
+                'super_text': f'Doskona\u0142y metabolizm t\u0142uszczowy (FATmax: {_fat_v:.2f} g/min przy {_fat_pct:.0f}% VO\u2082max) \u2014 Tw\u00f3j organizm \u015bwietnie spala t\u0142uszcze, co daje przewag\u0119 na d\u0142ugich dystansach.',
+                'tip': 'D\u0142ugie Z2 + periodyzacja w\u0119glowodan\u00f3w'
+            }
+        
+        # ── 9. BREATHING PATTERN ──
+        _bf = _sf(bf_peak)
+        _bp_sc = None
+        if _bf is not None and e07:
+            if _bf < 40: _bp_sc = 90
+            elif _bf < 50: _bp_sc = 75
+            elif _bf < 55: _bp_sc = 60
+            elif _bf < 65: _bp_sc = 45
+            else: _bp_sc = 30
+            # Flags penalty
+            if breathing_flags:
+                _n_flags = len(breathing_flags) if isinstance(breathing_flags, list) else 1
+                _bp_sc *= max(0.7, 1 - _n_flags * 0.08)
+            # Sport context: high BF is normal in athletes
+            if _is_athlete and _bf < 60:
+                _bp_sc = max(_bp_sc, 55)
+            _bp_sc = max(0, min(100, _bp_sc))
+            _cat['breathing'] = {
+                'score': _bp_sc,
+                'label': 'Wzorzec oddechowy',
+                'icon': '\U0001f32c\ufe0f',
+                'limiter_text': f'Wzorzec oddechowy z ostrze\u017ceniami (BF peak: {_bf:.0f}/min' + (f', flagi: {", ".join(breathing_flags[:2])}' if breathing_flags else '') + '). Praca nad g\u0142\u0119bokim, kontrolowanym oddychaniem mo\u017ce poprawi\u0107 efektywno\u015b\u0107.',
+                'super_text': f'Efektywny wzorzec oddechowy (BF peak: {_bf:.0f}/min) \u2014 oddychasz g\u0142\u0119boko i ekonomicznie, co wspiera wydolno\u015b\u0107.',
+                'tip': 'Trening oddechowy + medytacja'
+            }
+        
+        # ── 10. DECONDITIONING (composite — only if VO2 low with normal ratios) ──
+        _decon_sc = None
+        _vo2_pp_v = _sf(vo2_pct_pred, 100)
+        if _vo2_pp_v is not None and _vo2_pp_v < 80 and _vent_sc > 55 and _o2p_sc > 60:
+            _decon_sc = max(5, _vo2_pp_v * 0.8)
+            _cat['deconditioning'] = {
+                'score': _decon_sc,
+                'label': 'Dekondycjonowanie',
+                'icon': '\U0001f6cb\ufe0f',
+                'limiter_text': f'VO\u2082max na {_vo2_pp_v:.0f}% normy przy prawid\u0142owych proporcjach fizjologicznych \u2014 wskazuje na dekondycjonowanie. Systematyczny, stopniowy trening przyniesie szybkie efekty.',
+                'super_text': '',  # deconditioning is never a superpower
+                'tip': 'Systematyczny trening od podstaw'
+            }
+        
+        # ── CONTEXTUAL OVERRIDES ──
+        # "Threshold trap": VT2 high % but low absolute speed → real limiter is VO2max
+        if _vt2p >= 88 and _pc.get('level_by_speed') in ('Sedentary', 'Recreational'):
+            _cat['vo2max']['score'] *= 0.8
+            _cat['vo2max']['limiter_text'] = f'Pr\u00f3g wysoki ({_vt2p:.0f}% VO\u2082max) ale pr\u0119dko\u015b\u0107 absolutna niska \u2014 prawdziwym limiterem jest niski VO\u2082max. Buduj sufit tlenowy interwa\u0142ami i obj\u0119to\u015bci\u0105.'
+        
+        # Economy masking: high VO2 but poor economy
+        if pctile_val >= 70 and _gz < -0.8:
+            _cat['economy']['score'] *= 0.75
+        
+        # ── FIND #1 LIMITER & SUPERPOWER ──
+        _valid = {k: v for k, v in _cat.items() if v.get('score') is not None}
+        
+        _limiter_key = min(_valid, key=lambda k: _valid[k]['score']) if _valid else None
+        _super_key = max((k for k in _valid if k != 'deconditioning'), key=lambda k: _valid[k]['score']) if _valid else None
+        
+        _limiter = _valid.get(_limiter_key, {}) if _limiter_key else {}
+        _superpower = _valid.get(_super_key, {}) if _super_key else {}
+        
+        # ── SCORES FOR GAUGES (keep backward compatible) ──
+        _hrr_score = _cat.get('recovery', {}).get('score', 0) or 0
+        _vt2_score = _cat.get('vt2', {}).get('score', 0) or 0
+        _vent_score = _cat.get('ventilation', {}).get('score', 0) or 0
+        _econ_score = _cat.get('economy', {}).get('score', 0) or 0
         
         _overall = 0
         try:
-            _overall = pctile_val * 0.30 + _vt2_score * 0.25 + _vent_score * 0.15 + _hrr_score * 0.15 + _econ_score * 0.15
+            _weights = {'vo2max': 0.25, 'vt2': 0.20, 'vt1': 0.10, 'economy': 0.12,
+                        'ventilation': 0.08, 'cardiac': 0.10, 'recovery': 0.08,
+                        'substrate': 0.05, 'breathing': 0.02}
+            _w_sum = 0
+            for k, w in _weights.items():
+                if k in _valid and _valid[k].get('score') is not None:
+                    _overall += _valid[k]['score'] * w
+                    _w_sum += w
+            if _w_sum > 0:
+                _overall /= _w_sum
+                _overall *= sum(_weights.values())  # re-normalize
         except: pass
         
         if _overall >= 85: _grade = 'Elitarny'
         elif _overall >= 72: _grade = 'Bardzo dobry'
         elif _overall >= 58: _grade = 'Dobry'
-        elif _overall >= 42: _grade = 'Przeciętny'
+        elif _overall >= 42: _grade = 'Przeci\u0119tny'
         else: _grade = 'Do poprawy'
         
         _grade_col = '#16a34a' if _overall >= 72 else ('#d97706' if _overall >= 50 else '#dc2626')
@@ -3432,20 +3651,63 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
   </div>
 </div>'''
 
-        # ─── 2. PROFIL WYDOLNOŚCI ───
+        # ─── 2. PROFIL WYDOLNOŚCI + LIMITER / SUPERMOC ───
+        # Gauges row
+        _gauge_keys = [
+            ('vo2max', 'Wydolno\u015b\u0107', 'VO\u2082max'),
+            ('vt2', 'Pr\u00f3g', 'VT2'),
+            ('vt1', 'Baza', 'VT1'),
+            ('economy', 'Ekonomia', 'Ruch'),
+            ('ventilation', 'Oddychanie', 'VE/VCO\u2082'),
+            ('cardiac', 'Serce', 'O\u2082 pulse'),
+            ('recovery', 'Regeneracja', 'HRR'),
+        ]
+        _gauge_html = ''
+        for _gk, _gl, _gs in _gauge_keys:
+            _gv = _cat.get(_gk, {}).get('score', 0) or 0
+            _is_lim = (_gk == _limiter_key)
+            _is_sup = (_gk == _super_key)
+            _border = 'border:2px solid #ef4444;border-radius:50%;' if _is_lim else ('border:2px solid #16a34a;border-radius:50%;' if _is_sup else '')
+            _gauge_html += f'<div style="{_border}padding:2px;">{gauge_svg(min(100, _gv), _gl, subtitle=_gs)}</div>'
+        
+        # Also add substrate & breathing if available
+        for _xk, _xl, _xs in [('substrate', 'T\u0142uszcze', 'FATmax'), ('breathing', 'Oddech', 'BF')]:
+            if _xk in _cat:
+                _xv = _cat[_xk].get('score', 0) or 0
+                _is_lim = (_xk == _limiter_key)
+                _is_sup = (_xk == _super_key)
+                _border = 'border:2px solid #ef4444;border-radius:50%;' if _is_lim else ('border:2px solid #16a34a;border-radius:50%;' if _is_sup else '')
+                _gauge_html += f'<div style="{_border}padding:2px;">{gauge_svg(min(100, _xv), _xl, subtitle=_xs)}</div>'
+        
         h += f'''<div class="card">
-  <div class="section-title"><span class="section-icon">📊</span>Profil wydolno\u015bci</div>
-  <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:8px;text-align:center;">
-    {gauge_svg(min(100, pctile_val), 'Wydolno\u015b\u0107', subtitle='VO\u2082max')}
-    {gauge_svg(min(100, _vt2_score), 'Pr\u00f3g', subtitle='VT2')}
-    {gauge_svg(min(100, _vent_score), 'Oddychanie', subtitle='Wentylacja')}
-    {gauge_svg(min(100, _econ_score), 'Ekonomia', subtitle='Ruch')}
-    {gauge_svg(min(100, _hrr_score), 'Regeneracja', subtitle='HRR')}
+  <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci</div>
+  <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:6px;text-align:center;">
+    {_gauge_html}
   </div>
-  <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
-    Ka\u017cdy wska\u017anik w skali 0\u2013100. Powy\u017cej 70 = bardzo dobrze. Powy\u017cej 85 = poziom sportowy.
-  </div>
+  <div style="text-align:center;margin-top:8px;font-size:11px;color:#94a3b8;">
+    Skala 0\u2013100 | <span style="color:#16a34a;">\u25cf</span> supermoc <span style="color:#ef4444;">\u25cf</span> limiter | &gt;70 = bardzo dobrze | &gt;85 = poziom sportowy
+  </div>'''
+        
+        # ── SUPERMOC + LIMITER cards ──
+        if _superpower or _limiter:
+            h += '<div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;">'
+            
+            if _superpower and _superpower.get('super_text'):
+                h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:12px;border-left:4px solid #16a34a;">
+  <div style="font-size:13px;font-weight:700;color:#16a34a;margin-bottom:6px;">{_superpower.get('icon','\U0001f4aa')} SUPERMOC: {_superpower.get('label','')}</div>
+  <div style="font-size:12px;color:#334155;line-height:1.6;">{_superpower.get('super_text','')}</div>
 </div>'''
+            
+            if _limiter and _limiter.get('limiter_text'):
+                h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:12px;border-left:4px solid #ef4444;">
+  <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:6px;">{_limiter.get('icon','\u26a0\ufe0f')} LIMITER: {_limiter.get('label','')}</div>
+  <div style="font-size:12px;color:#334155;line-height:1.6;">{_limiter.get('limiter_text','')}</div>
+  <div style="margin-top:6px;font-size:11px;color:#64748b;font-style:italic;">\U0001f4a1 {_limiter.get('tip','')}</div>
+</div>'''
+            
+            h += '</div>'
+        
+        h += '</div>'
 
         # ─── 3. STREFY TRENINGOWE ───
         zone_colors = ['#22c55e','#84cc16','#eab308','#f97316','#ef4444']
@@ -3573,7 +3835,10 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += '</div></div>'
 
         # ─── 6. WYKRESY ───
-        charts_html = ReportAdapter._render_charts_html(ct)
+        try:
+            charts_html = ReportAdapter._render_charts_html(ct)
+        except Exception:
+            charts_html = ''
         if charts_html:
             h += f'<div class="card"><div class="section-title"><span class="section-icon">\U0001f4c8</span>Wykresy</div>{charts_html}</div>'
 
