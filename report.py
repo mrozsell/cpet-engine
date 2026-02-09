@@ -1280,8 +1280,11 @@ def compute_profile_scores(ct):
             elif bf_peak < 55: _bp_sc = 60
             elif bf_peak < 65: _bp_sc = 45
             else: _bp_sc = 30
-        # Only penalize for REAL clinical flags, not estimation artifacts
+        # Only penalize for REAL clinical flags, not estimation artifacts or normal athlete adaptations
         _artifact_flags = {'VDVT_EST_ARTIFACT', 'EST_ARTIFACT', 'VT_ESTIMATED', 'VDVT_EST_LOW'}
+        # In athletes: BF variability and early VT plateau are normal adaptations (Carey 2008)
+        if _is_athlete:
+            _artifact_flags |= {'HIGH_BF_VAR_EX', 'EARLY_VT_PLATEAU'}
         _real_flags = [f for f in (breathing_flags or []) if f not in _artifact_flags]
         if _real_flags:
             _n_flags = len(_real_flags)
