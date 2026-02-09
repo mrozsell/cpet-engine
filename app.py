@@ -144,6 +144,7 @@ with st.sidebar:
     )
 
     auto_info = {}
+    _csv_tmp_from_xml = None
     if uploaded_file is not None:
         # ── XML → CSV conversion (Cortex MetaSoft) ──
         _is_xml = uploaded_file.name.lower().endswith('.xml')
@@ -152,10 +153,7 @@ with st.sidebar:
                 with tempfile.NamedTemporaryFile(suffix='.xml', delete=False, mode='wb') as _xf:
                     _xf.write(uploaded_file.getvalue())
                     _xml_tmp = _xf.name
-                _csv_tmp = parse_cortex_xml(_xml_tmp, tempfile.gettempdir())
-                # Re-read as CSV for preview and downstream processing
-                uploaded_file = open(_csv_tmp, 'rb')
-                uploaded_file.name = os.path.basename(_csv_tmp)
+                _csv_tmp_from_xml = parse_cortex_xml(_xml_tmp, tempfile.gettempdir())
                 st.success("✅ XML Cortex → CSV skonwertowany automatycznie")
                 os.unlink(_xml_tmp)
             except Exception as e:
@@ -163,9 +161,13 @@ with st.sidebar:
                 st.stop()
 
         try:
-            df_preview = pd.read_csv(uploaded_file, nrows=2)
-            uploaded_file.seek(0)
-            auto_info = auto_extract_from_csv(df_preview, uploaded_file.name)
+            if _csv_tmp_from_xml:
+                df_preview = pd.read_csv(_csv_tmp_from_xml, nrows=2)
+                auto_info = auto_extract_from_csv(df_preview, os.path.basename(_csv_tmp_from_xml))
+            else:
+                df_preview = pd.read_csv(uploaded_file, nrows=2)
+                uploaded_file.seek(0)
+                auto_info = auto_extract_from_csv(df_preview, uploaded_file.name)
             if auto_info:
                 extracted = ", ".join(f"{k}={v}" for k, v in auto_info.items())
                 st.success(f"✅ Auto: {extracted}")
@@ -408,9 +410,12 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
 
     with st.spinner("⏳ Analizuję dane CPET..."):
 
-        with tempfile.NamedTemporaryFile(suffix='.csv', delete=False, mode='wb') as tmp:
-            tmp.write(uploaded_file.getvalue())
-            tmp_path = tmp.name
+        if _csv_tmp_from_xml:
+            tmp_path = _csv_tmp_from_xml
+        else:
+            with tempfile.NamedTemporaryFile(suffix='.csv', delete=False, mode='wb') as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = tmp.name
 
         try:
             config = AnalysisConfig(
