@@ -12083,7 +12083,17 @@ class CPET_Orchestrator:
             getattr(self.cfg, "age_y", None),
             getattr(self.cfg, "sex", "male"),
             self.results.get("E01", {}).get("hr_peak"))
-        _e06_kw = dict(df_ex=df_ex, modality=getattr(self.cfg,"modality","run"), e02=self.results.get("E02",{}), e01=self.results.get("E01",{}), weight_kg=getattr(self.cfg,"body_mass_kg",None))
+        # E06 needs TEST modality (treadmill→run, bike_erg→bike), not sport
+        _prot_upper = getattr(self.cfg, "protocol_name", "").upper()
+        if any(k in _prot_upper for k in ('RUN_', 'BRUCE', 'BIEZNIA', 'TREADMILL', 'STEP_3MIN', 'HYROX')):
+            _e06_mod = 'run'
+        elif any(k in _prot_upper for k in ('BIKE_', 'CYCLE', 'ROWER', 'WATT', 'ECHO')):
+            _e06_mod = 'bike'
+        elif any(k in _prot_upper for k in ('ROW_', 'WIOSLARZ')):
+            _e06_mod = 'row'
+        else:
+            _e06_mod = getattr(self.cfg, "modality", "run")  # fallback to sport
+        _e06_kw = dict(df_ex=df_ex, modality=_e06_mod, e02=self.results.get("E02",{}), e01=self.results.get("E01",{}), weight_kg=getattr(self.cfg,"body_mass_kg",None))
         self.results["E06"] = self._safe_run("E06", Engine_E06_Gain_v2.run, **_e06_kw)
         self.results["E07"] = self._safe_run("E07", Engine_E07_BreathingPattern.run, df_ex, self.results.get("E02"), self.results.get("E01"), self.cfg)
         self.results["E08"] = self._safe_run("E08", Engine_E08_CardioHRR.run, df_full, t_stop)

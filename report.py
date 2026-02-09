@@ -1100,7 +1100,7 @@ def compute_profile_scores(ct):
         _vt1_trap = True
     
     _vt1_spd = _sf(vt1_speed, 0)
-    if modality == 'run' and 0 < _vt1_spd < 9.5 and _vt1p >= 70:
+    if g('test_device', 'treadmill') == 'treadmill' and 0 < _vt1_spd < 9.5 and _vt1p >= 70:
         _vt1_sc *= 0.8
         _vt1_trap = True
     
@@ -1126,9 +1126,13 @@ def compute_profile_scores(ct):
     _re_info = f' (RE: {_re_v:.0f} ml/kg/km)' if _re_v else ''
     _e06_flags = e06.get('flags', []) if isinstance(e06, dict) else []
     _e06_no_data = 'INSUFFICIENT_DATA' in _e06_flags and not _re_v and not _gz
+    # test_device determines RE vs GAIN (physics of the test, not the sport)
+    # treadmill → RE is always valid regardless of sport (crossfit on treadmill → RE)
+    _test_device = g('test_device', 'treadmill')
+    _use_re = _test_device == 'treadmill' and _re_v and _re_v > 0
     
-    # RE-based scoring for running (lower RE = better economy)
-    if modality == 'run' and _re_v and _re_v > 0:
+    # RE-based scoring when test is on treadmill (lower RE = better economy)
+    if _use_re:
         if _re_v < 175: _re_sc = 95
         elif _re_v < 185: _re_sc = 80 + (185 - _re_v) / 10 * 15
         elif _re_v < 200: _re_sc = 60 + (200 - _re_v) / 15 * 20
@@ -1138,9 +1142,10 @@ def compute_profile_scores(ct):
         # Blend with GAIN_z when available (RE 60% + GAIN_z 40%)
         _gz_sc = max(0, min(100, 50 + _gz * 22)) if _gz else None
         _econ_sc = (0.6 * _re_sc + 0.4 * _gz_sc) if _gz_sc is not None else _re_sc
-        _econ_label = 'Ekonomia biegu'
-        _econ_lim = f'Ekonomia biegu do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
-        _econ_sup = f'Doskonała ekonomia biegu (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba.'
+        _re_ctx = ' (test na bieżni)' if modality != 'run' else ''
+        _econ_label = f'Ekonomia biegu{_re_ctx}'
+        _econ_lim = f'Ekonomia biegu{_re_ctx} do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
+        _econ_sup = f'Doskonała ekonomia biegu{_re_ctx} (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba.'
     else:
         # GAIN_z-based for cycling or when RE unavailable
         _econ_sc = max(0, min(100, 50 + _gz * 22)) if _gz else 50
@@ -1502,7 +1507,7 @@ def compute_profile_scores(ct):
     
     # ── Economy ──
     try:
-        if modality == 'run' and _re_v and _re_v > 0:
+        if _use_re:
             if _re_v < 185:
                 _interp['economy'] = f'Ekonomia biegu <b>ponadprzeciętna</b> (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}.'
             elif _re_v < 200:
@@ -1724,7 +1729,7 @@ class ReportAdapter:
             return ''
         
         modality = getattr(cfg, 'modality', 'run')
-        is_run = modality == 'run'
+        is_run = ct.get('test_device', 'treadmill') == 'treadmill'
         
         def parse_t(t_str):
             try:
@@ -2338,6 +2343,16 @@ class ReportAdapter:
         ct['height_cm'] = ct.get('height')
         ct['sex'] = getattr(cfg, 'sex', 'male')
         ct['modality'] = getattr(cfg, 'modality', 'run')
+        # Infer test_device from protocol (determines RE vs GAIN, independent of sport)
+        _prot = getattr(cfg, 'protocol_name', '').upper()
+        if any(k in _prot for k in ('RUN_', 'BRUCE', 'BIEZNIA', 'TREADMILL', 'STEP_3MIN')):
+            ct['test_device'] = 'treadmill'
+        elif any(k in _prot for k in ('BIKE_', 'CYCLE', 'ROWER', 'ERGOM')):
+            ct['test_device'] = 'bike_erg'
+        elif any(k in _prot for k in ('ROW_', 'WIOSLARZ')):
+            ct['test_device'] = 'rowing_erg'
+        else:
+            ct['test_device'] = 'treadmill' if ct.get('_chart_full_speed') else 'other'
         ct['protocol_name'] = ct.get('protocol') or getattr(cfg, 'protocol_name', '-')
 
         # VO2 peak
@@ -3774,10 +3789,12 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
   {panel_card('⛽ Paliwo i Metabolizm', '', pd_html)}
 </div>'''
         
-        # --- EFFICIENCY / ECONOMY (E06) — modality-dependent ---
+        # --- EFFICIENCY / ECONOMY (E06) — test_device determines RE vs GAIN ---
         if e06.get('status') == 'OK':
             pe = ''
-            if modality == 'run':
+            _test_dev = ct.get('test_device', 'treadmill')
+            _show_re = _test_dev == 'treadmill'
+            if _show_re:
                 # Running: show Running Economy as primary
                 pe += '<div class="sub-header">Ekonomia biegu (Running Economy)</div>'
                 pe += row_item('RE @VT1', f'{_n(re_vt1,".1f")} ml/kg/km', re_class, f'VO₂ {_n(e06.get("vo2_at_vt1"),".1f")} ml/kg/min @ {_n(e06.get("load_at_vt1"),".1f")} km/h')
@@ -3795,8 +3812,8 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 if delta_eff:
                     pe += row_item('Delta Efficiency', f'{_n(delta_eff,".1f")}%', '', '')
             if lin_break:
-                pe += row_item('Linearity break', _fmt_dur(lin_break), '', f'@ {_n(e06.get("linearity_break_load"),".1f")} {"km/h" if modality=="run" else "W"}')
-            h += f'<div style="margin-top:12px;">{panel_card("🏃 Efektywność" if modality=="run" else "⚡ Efektywność", "", pe)}</div>'
+                pe += row_item('Linearity break', _fmt_dur(lin_break), '', f'@ {_n(e06.get("linearity_break_load"),".1f")} {"km/h" if _show_re else "W"}')
+            h += f'<div style="margin-top:12px;">{panel_card("🏃 Efektywność" if _show_re else "⚡ Efektywność", "", pe)}</div>'
         
         h += '</div>'  # end section III
 
@@ -4378,7 +4395,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         _econ_lbl = _econ_data.get('label', 'Ekonomia ruchu')
         _econ_interp = _profile.get('interpretations', {}).get('economy', '')
         
-        if modality == 'run' and re_mlkgkm:
+        if ct.get('test_device', 'treadmill') == 'treadmill' and re_mlkgkm:
             _re_display = f'{_n(re_mlkgkm, ".0f", "—")}'
             _re_unit = 'ml/kg/km'
             _re_rating = 'Świetna' if _econ_score >= 80 else ('Dobra' if _econ_score >= 60 else ('Przeciętna' if _econ_score >= 40 else 'Do poprawy'))
