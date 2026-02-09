@@ -1059,7 +1059,9 @@ def compute_profile_scores(ct):
     # ── 2. VT2 THRESHOLD ──
     _vt2p = _sf(vt2_pct, 75)
     _vt2_sc = max(0, min(100, (_vt2p - 60) / 35 * 100))
-    if _is_athlete and _vt2p < 80:
+    # Sport-specific VT2 expectation for athletes
+    _vt2_sport_thr = {'run':80,'bike':78,'triathlon':80,'rowing':78,'crossfit':72,'hyrox':75,'swimming':76,'xc_ski':84,'soccer':78,'mma':72}.get(modality, 80)
+    if _is_athlete and _vt2p < _vt2_sport_thr:
         _vt2_sc *= 0.85
     _cat['vt2'] = {
         'score': _vt2_sc,
@@ -1078,14 +1080,16 @@ def compute_profile_scores(ct):
         _vt1_sc *= 0.8
     
     _vt1_trap = False
-    # Ceiling trap: high VT1% but low absolute fitness (sport context)
-    if sport_class_raw in ('UNTRAINED', 'RECREATIONAL') and _vt1p >= 70:
+    # Ceiling trap: high VT1% but low absolute fitness — sport-specific thresholds
+    _vt1_trap_thr = {'run':70,'bike':68,'triathlon':70,'rowing':68,'crossfit':62,'hyrox':65,'swimming':66,'xc_ski':74,'soccer':68,'mma':62}.get(modality, 70)
+    _vt1_trained_thr = _vt1_trap_thr + 8  # higher bar for TRAINED athletes
+    if sport_class_raw in ('UNTRAINED', 'RECREATIONAL') and _vt1p >= _vt1_trap_thr:
         _vt1_sc *= 0.6
         _vt1_trap = True
-    elif sport_class_raw == 'TRAINED' and _vt1p >= 78:
+    elif sport_class_raw == 'TRAINED' and _vt1p >= _vt1_trained_thr:
         _vt1_sc *= 0.8
         _vt1_trap = True
-    elif pctile_val < 50 and _vt1p >= 70:
+    elif pctile_val < 50 and _vt1p >= _vt1_trap_thr:
         # Fallback: no sport class, use pop pctile
         _vt1_sc *= 0.65
         _vt1_trap = True
@@ -1210,6 +1214,11 @@ def compute_profile_scores(ct):
     elif _hrr_v >= 8: _hrr_sc = 15 + (_hrr_v - 8) / 7 * 23
     else: _hrr_sc = max(5, _hrr_v / 8 * 15)
     _hrr_sc = max(0, min(100, _hrr_sc))
+    # Athletes should have better recovery — penalty if HRR below sport expectation
+    if _is_athlete and _hrr_v < 25:
+        _hrr_sc *= 0.85  # trained athlete with HRR<25 = underperforming
+    elif _is_athlete and _hrr_v < 20:
+        _hrr_sc *= 0.75  # serious concern for trained athlete
     _cat['recovery'] = {
         'score': _hrr_sc,
         'label': 'Regeneracja',
@@ -1248,16 +1257,30 @@ def compute_profile_scores(ct):
     # ── 9. BREATHING PATTERN ──
     _bp_sc = None
     if bf_peak is not None and e07:
-        if bf_peak < 40: _bp_sc = 90
-        elif bf_peak < 50: _bp_sc = 75
-        elif bf_peak < 55: _bp_sc = 60
-        elif bf_peak < 65: _bp_sc = 45
-        else: _bp_sc = 30
-        if breathing_flags:
-            _n_flags = len(breathing_flags) if isinstance(breathing_flags, list) else 1
-            _bp_sc *= max(0.7, 1 - _n_flags * 0.08)
-        if _is_athlete and bf_peak < 60:
-            _bp_sc = max(_bp_sc, 55)
+        # Sport-class-aware BF peak scoring
+        # Elite athletes normally have BF 55-70 (Carey 2008, Naranjo 2005)
+        if _is_athlete:
+            # TRAINED/COMPETITIVE/ELITE — higher BF is normal adaptation
+            if bf_peak < 50: _bp_sc = 92
+            elif bf_peak < 58: _bp_sc = 80
+            elif bf_peak < 66: _bp_sc = 68
+            elif bf_peak < 73: _bp_sc = 58  # upper normal for athletes
+            else: _bp_sc = 42
+        else:
+            # UNTRAINED/RECREATIONAL — standard thresholds
+            if bf_peak < 40: _bp_sc = 90
+            elif bf_peak < 48: _bp_sc = 75
+            elif bf_peak < 55: _bp_sc = 60
+            elif bf_peak < 65: _bp_sc = 45
+            else: _bp_sc = 30
+        # Only penalize for REAL clinical flags, not estimation artifacts
+        _artifact_flags = {'VDVT_EST_ARTIFACT', 'EST_ARTIFACT', 'VT_ESTIMATED', 'VDVT_EST_LOW'}
+        _real_flags = [f for f in (breathing_flags or []) if f not in _artifact_flags]
+        if _real_flags:
+            _n_flags = len(_real_flags)
+            # Athletes: smaller penalty per flag (some variability is normal)
+            _pen = 0.05 if _is_athlete else 0.08
+            _bp_sc *= max(0.75, 1 - _n_flags * _pen)
         _bp_sc = max(0, min(100, _bp_sc))
         _cat['breathing'] = {
             'score': _bp_sc,
@@ -1318,9 +1341,27 @@ def compute_profile_scores(ct):
     # ═══════════════════════════════════════════════════════
     # OVERALL SCORE (weighted composite)
     # ═══════════════════════════════════════════════════════
-    _weights = {'vo2max': 0.25, 'vt2': 0.20, 'vt1': 0.10, 'economy': 0.12,
+    # Sport-specific category weights
+    _base_weights = {'vo2max': 0.25, 'vt2': 0.20, 'vt1': 0.10, 'economy': 0.12,
                 'ventilation': 0.08, 'cardiac': 0.10, 'recovery': 0.08,
                 'substrate': 0.05, 'breathing': 0.02}
+    _sport_weight_mods = {
+        # Endurance: substrate matters more, economy critical
+        'run':       {'substrate': 0.07, 'economy': 0.14},
+        'xc_ski':    {'substrate': 0.08, 'economy': 0.10, 'cardiac': 0.12},
+        'triathlon': {'substrate': 0.08, 'economy': 0.12},
+        # Cycling: economy (watts efficiency) and cardiac critical
+        'bike':      {'economy': 0.14, 'cardiac': 0.12, 'substrate': 0.06},
+        'rowing':    {'economy': 0.14, 'cardiac': 0.12, 'substrate': 0.06},
+        'swimming':  {'economy': 0.16, 'substrate': 0.04},
+        # Mixed/glycolytic: recovery and VT2 matter more, substrate less
+        'crossfit':  {'recovery': 0.12, 'vt2': 0.22, 'substrate': 0.02, 'economy': 0.08},
+        'hyrox':     {'recovery': 0.10, 'substrate': 0.06, 'economy': 0.10},
+        'mma':       {'recovery': 0.14, 'vt2': 0.22, 'substrate': 0.02, 'economy': 0.06},
+        'soccer':    {'recovery': 0.12, 'vt2': 0.22, 'substrate': 0.03, 'economy': 0.06},
+    }
+    _weights = dict(_base_weights)
+    _weights.update(_sport_weight_mods.get(modality, {}))
     _overall = 0
     try:
         _w_sum = 0
@@ -1908,6 +1949,7 @@ class ReportAdapter:
         
         ct['_prot_name'] = getattr(cfg, 'protocol_name', '-')
         ct['_prot_modality'] = getattr(cfg, 'modality', '-')
+        ct['_gc_manual'] = getattr(cfg, 'gc_manual', None)
         
         # Protocol steps from RAW_PROTOCOLS
         try:
@@ -3466,30 +3508,58 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         
         h += '</div>'
         
-        # Training recommendation
+        # Training recommendation — uses profile scoring + E20 sport-specific session
         h += '<div class="sub-header">Rekomendacja treningowa</div>'
         try:
-            _vt2p = float(vt2_pct) if vt2_pct else 0
-            _vt1p = float(vt1_pct) if vt1_pct else 0
-            _pc_r = ct.get('_performance_context', {})
-            _lvl_r = _pc_r.get('level_by_speed', '')
-            _v_vt2_r = _pc_r.get('v_vt2_kmh')
-            _v_ctx = f' / {_v_vt2_r:.1f} km/h' if _v_vt2_r else ''
-            _lvl_ctx = f' (poziom {_lvl_r})' if _lvl_r else ''
-            if _vt2p >= 90:
-                rec_text = f'VT2 przy {_vt2p:.0f}% VO\u2082max{_v_ctx}{_lvl_ctx} — progi wysoko ustawione. Dalszy post\u0119p przez <b>interwa\u0142y VO\u2082max</b> (3-5 min @ 95-100% VO\u2082max).'
-                rec_dist = '📊 75% Z1-Z2 | 10% Z3 | 10% Z4 | 5% Z5'
-            elif _vt2p >= 80:
-                rec_text = f'VT2 przy {_vt2p:.0f}% VO\u2082max{_v_ctx}{_lvl_ctx} — dobra przestrze\u0144 na rozw\u00f3j. Priorytet: <b>trening progowy</b> (Z4) + interwa\u0142y VO\u2082max (Z5).'
-                rec_dist = '📊 70% Z1-Z2 | 10% Z3 | 12% Z4 | 8% Z5'
-            elif _vt1p < 55:
-                rec_text = f'VT1 przy {_vt1p:.0f}%{_v_ctx} — priorytet: <b>budowanie bazy tlenowej</b> (Z2). Du\u017cy potencja\u0142 poprawy.'
-                rec_dist = '📊 80% Z1-Z2 | 10% Z3 | 7% Z4 | 3% Z5'
-            else:
-                rec_text = 'Zrównoważony trening polaryzowany.'
-                rec_dist = '📊 75% Z1-Z2 | 10% Z3 | 10% Z4 | 5% Z5'
-            h += f'<div style="padding:8px;background:#fffbeb;border-radius:6px;font-size:12px;border-left:3px solid #f59e0b;">'
-            h += f'⚡ {rec_text}<br>{rec_dist}</div>'
+            _profile_pro = ct.get('_profile') or {}
+            _limiter_pro = _profile_pro.get('limiter', {})
+            _limiter_key_pro = _profile_pro.get('limiter_key', '')
+            _super_pro = _profile_pro.get('superpower', {})
+            
+            # E20 GameChanger — same logic as LITE
+            _lim_key_map_pro = {
+                'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
+                'vt2': 'HIGH_BASE_LOW_THRESHOLD',
+                'vt1': 'LOW_BASE',
+                'economy': 'ECONOMY_LIMITER',
+                'ventilation': 'VENTILATORY_LIMITER',
+                'cardiac': 'CARDIAC_LIMITER',
+                'recovery': 'RECOVERY_LIMITER',
+                'substrate': 'SUBSTRATE_LIMITER',
+                'breathing': 'VENTILATORY_LIMITER',
+            }
+            _gc_pro_session = ''
+            try:
+                from e20_training_decision import PhysioSnapshot as _PS, TrainingProfile as _TP, _scale_session as _ss, SPORT_CLASS_RANK as _SCR
+                _e20r = {}
+                for _eid in ['E00','E01','E02','E03','E04','E05','E06','E07','E08','E09','E10','E11','E12','E13','E14','E15','E16','E17','E19']:
+                    _e20r[_eid] = ct.get('_' + _eid.lower() + '_raw', {})
+                _e20r['_performance_context'] = ct.get('_performance_context', {})
+                _e20s = _PS.from_results(_e20r, None)
+                _e20s.zones = ct.get('_e16_zones', {})
+                _e20m = ct.get('_prot_modality', 'run')
+                _sc_r = _SCR.get(_e20s.sport_class, 1)
+                _lt = _lim_key_map_pro.get(_limiter_key_pro, 'HIGH_BASE_LOW_THRESHOLD')
+                _gc_pro_session = _ss('KEY_1', _e20s, _sc_r, _lt, modality=_e20m)
+            except Exception:
+                _gc_pro_session = _limiter_pro.get('tip', '')
+            
+            # Display: LIMITER + SUPER + GameChanger
+            if _limiter_pro.get('label'):
+                h += f'<div style="padding:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:8px;border-left:3px solid #ef4444;margin-bottom:6px;font-size:12px;">'
+                h += f'<b>{_limiter_pro.get("icon","⚠️")} LIMITER: {_limiter_pro["label"]}</b><br>'
+                h += f'<span style="color:#475569;">{_limiter_pro.get("limiter_text","")}</span></div>'
+            if _super_pro.get('label'):
+                h += f'<div style="padding:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:8px;border-left:3px solid #16a34a;margin-bottom:6px;font-size:12px;">'
+                h += f'<b>{_super_pro.get("icon","💪")} SUPERMOC: {_super_pro["label"]}</b><br>'
+                h += f'<span style="color:#475569;">{_super_pro.get("super_text","")}</span></div>'
+            if _gc_pro_session:
+                # Manual override from config takes priority
+                _gc_display = ct.get('_gc_manual') or _gc_pro_session
+                _gc_is_manual = bool(ct.get('_gc_manual'))
+                h += f'<div style="padding:10px;background:linear-gradient(135deg,#fefce8,#fef9c3);border-radius:8px;border-left:3px solid #eab308;font-size:12px;">'
+                h += f'<b>🎯 GAME CHANGER — trening tygodnia</b>{"  <span style=\"font-size:10px;color:#a16207;\">(✏️ ręcznie)</span>" if _gc_is_manual else ""}<br>'
+                h += f'<span style="color:#334155;">{_gc_display}</span></div>'
         except: pass
         
         h += '</div></div></div>'
@@ -4132,10 +4202,20 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 _gc_session = _limiter.get('tip', '')
             
             if _gc_session:
+                # Manual override from config takes priority
+                _gc_display_lite = ct.get('_gc_manual') or _gc_session
+                _gc_is_manual_lite = bool(ct.get('_gc_manual'))
                 h += f'''<div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,#fefce8,#fef9c3);border-radius:12px;border-left:4px solid #eab308;">
-  <div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:6px;">🎯 GAME CHANGER — trening tygodnia</div>
-  <div style="font-size:12px;color:#334155;line-height:1.6;">{_gc_session}</div>
+  <div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:6px;">🎯 GAME CHANGER — trening tygodnia{"  <span style='font-size:10px;'>(✏️ ręcznie)</span>" if _gc_is_manual_lite else ""}</div>
+  <div style="font-size:12px;color:#334155;line-height:1.6;">{_gc_display_lite}</div>
   <div style="margin-top:6px;font-size:10px;color:#a16207;">Odpowiedź na Twój limiter: {_limiter.get('label','')}</div>
+</div>'''
+        
+        # Standalone manual GC when no auto limiter was detected
+        if not (_limiter and _limiter.get('limiter_text')) and ct.get('_gc_manual'):
+            h += f'''<div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,#fefce8,#fef9c3);border-radius:12px;border-left:4px solid #eab308;">
+  <div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:6px;">🎯 GAME CHANGER — trening tygodnia  <span style='font-size:10px;'>(✏️ ręcznie)</span></div>
+  <div style="font-size:12px;color:#334155;line-height:1.6;">{ct['_gc_manual']}</div>
 </div>'''
         
         h += '</div>'

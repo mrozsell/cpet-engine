@@ -291,6 +291,16 @@ with st.sidebar:
         e20_goal_event = st.text_input("Cel startowy (opcja)", placeholder="np. maraton, Hyrox, 10km")
 
     st.markdown("---")
+    st.markdown("### 🎯 Game Changer (opcjonalnie)")
+    use_gc_manual = st.checkbox("Wpisz własne zalecenie treningowe",
+                                help="Nadpisuje automatyczny Game Changer w raporcie LITE i PRO. Scoring i limiter pozostają bez zmian.")
+    gc_manual_text = ""
+    if use_gc_manual:
+        gc_manual_text = st.text_area("Treść zalecenia",
+                                      placeholder="np. Threshold cruise: 3×12 min @ HR 155-165 (Z4), rest 3 min Z1",
+                                      height=80)
+
+    st.markdown("---")
     st.markdown("### 🔧 Zaawansowane")
     smooth_gas = st.slider("Wygładzanie gaz", 5, 50, 20)
     smooth_hr = st.slider("Wygładzanie HR", 3, 20, 5)
@@ -433,6 +443,7 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                 force_manual_t_stop=t_stop_manual,
                 smooth_window_gas=smooth_gas,
                 smooth_window_hr=smooth_hr,
+                gc_manual=gc_manual_text.strip() if use_gc_manual and gc_manual_text.strip() else None,
             )
 
             if mas_input > 0:
@@ -469,6 +480,10 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                     from report import ReportAdapter
                     _ct = results.get("canon_table", {})
                     if _ct:
+                        # Inject manual Game Changer if provided
+                        if use_gc_manual and gc_manual_text.strip():
+                            _ct['_gc_manual'] = gc_manual_text.strip()
+                            results['canon_table'] = _ct
                         st.session_state["cpet_html_lite"] = ReportAdapter.render_lite_html_report(_ct)
                     else:
                         st.session_state["cpet_html_lite"] = None

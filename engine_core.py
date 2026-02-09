@@ -33,6 +33,7 @@ class AnalysisConfig:
     # --- MANUAL VT OVERRIDE ---
     vt1_manual: Union[str, None] = None   # "MM:SS" or None
     vt2_manual: Union[str, None] = None   # "MM:SS" or None
+    gc_manual: Union[str, None] = None    # Manual Game Changer text (overrides auto)
 
     # --- PROFILING (testy zewnętrzne) ---
     mas_m_s: Optional[float] = None       # MAS z testu profilującego [m/s]
