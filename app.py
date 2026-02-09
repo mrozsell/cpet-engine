@@ -440,6 +440,18 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                 # Store results and E20 in session_state for re-rendering on radio change
                 st.session_state["cpet_results"] = results
                 st.session_state["cpet_engine_count"] = len(app.results)
+                
+                # Generate LITE report directly here (guaranteed fresh)
+                try:
+                    from report import ReportAdapter
+                    _ct = results.get("canon_table", {})
+                    if _ct:
+                        st.session_state["cpet_html_lite"] = ReportAdapter.render_lite_html_report(_ct)
+                    else:
+                        st.session_state["cpet_html_lite"] = None
+                except Exception as _lite_err:
+                    st.warning(f"⚠️ LITE report error: {_lite_err}")
+                    st.session_state["cpet_html_lite"] = None
 
                 # E20: Training Decision Engine
                 e20_html = ""
@@ -493,10 +505,11 @@ if "cpet_results" in st.session_state:
 
     # Select report based on user choice
     is_lite = "LITE" in report_type
-    has_lite = "html_report_lite" in results
-    st.caption(f"🔍 Debug: report_type='{report_type}' | is_lite={is_lite} | has_lite_key={has_lite}")
+    _lite_html = st.session_state.get("cpet_html_lite")
+    has_lite = _lite_html is not None and len(str(_lite_html)) > 100
+    st.caption(f"🔍 Debug: is_lite={is_lite} | has_lite={has_lite} | lite_len={len(str(_lite_html)) if _lite_html else 0}")
     if is_lite and has_lite:
-        html_content = results["html_report_lite"]
+        html_content = _lite_html
         report_label = "LITE"
     else:
         html_content = results["html_report"]
