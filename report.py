@@ -3383,7 +3383,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
 <style>
 *{{margin:0;padding:0;box-sizing:border-box;}}
 body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a;line-height:1.6;}}
-.wrap{{max-width:780px;margin:0 auto;padding:20px;}}
+.wrap{{max-width:920px;margin:0 auto;padding:20px;}}
 .card{{background:white;border-radius:14px;border:1px solid #e2e8f0;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}}
 .section-icon{{font-size:22px;margin-right:8px;vertical-align:middle;}}
 .section-title{{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;}}
