@@ -3397,12 +3397,36 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         _gap = _sf(thr_gap, 20)
         if _gap < 12:
             _vt1_sc *= 0.8  # compressed zones penalty
+        
+        # Ceiling-adjusted VT1: high % of low VO2max is NOT a strong base
+        # If VO2max percentile < 50, the "good VT1%" is misleading
+        _vt1_trap = False
+        if pctile_val < 50 and _vt1p >= 70:
+            _vt1_sc *= 0.65  # significant penalty — high % of low ceiling
+            _vt1_trap = True
+        elif pctile_val < 65 and _vt1p >= 75:
+            _vt1_sc *= 0.8  # moderate penalty
+            _vt1_trap = True
+        
+        # Absolute speed check for runners
+        _vt1_spd = _sf(vt1_speed, 0)
+        if modality == 'run' and 0 < _vt1_spd < 9.5 and _vt1p >= 70:
+            _vt1_sc *= 0.8  # slow absolute speed despite high %
+            _vt1_trap = True
+        
+        if _vt1_trap:
+            _vt1_lim_txt = f'VT1 przy {_vt1p:.0f}% VO\u2082max wygl\u0105da dobrze procentowo, ale absolutna wydolno\u015b\u0107 (VO\u2082max ~{pctile_val:.0f} percentyl' + (f', VT1 przy {_vt1_spd:.1f} km/h' if _vt1_spd > 0 else '') + ') jest niska. Buduj sufit tlenowy — baza pójdzie w górę automatycznie.'
+            _vt1_sup_txt = ''
+        else:
+            _vt1_lim_txt = f'Pr\u00f3g tlenowy (VT1) przy {_vt1p:.0f}% VO\u2082max' + (f' z w\u0105skim gapem VT2-VT1 ({_gap:.0f} bpm)' if _gap < 15 else '') + ' \u2014 baza aerobowa wymaga wzmocnienia. Wi\u0119cej d\u0142ugich, spokojnych trening\u00f3w w Z2.'
+            _vt1_sup_txt = f'Solidna baza tlenowa \u2014 VT1 przy {_vt1p:.0f}% VO\u2082max' + (f' z szerokim gapem {_gap:.0f} bpm mi\u0119dzy progami' if _gap >= 25 else '') + '. Tw\u00f3j fundament aerobowy jest mocny.'
+        
         _cat['vt1'] = {
             'score': _vt1_sc,
             'label': 'Baza tlenowa',
             'icon': '\U0001f49a',
-            'limiter_text': f'Pr\u00f3g tlenowy (VT1) przy {_vt1p:.0f}% VO\u2082max' + (f' z w\u0105skim gapem VT2-VT1 ({_gap:.0f} bpm)' if _gap < 15 else '') + ' \u2014 baza aerobowa wymaga wzmocnienia. Wi\u0119cej d\u0142ugich, spokojnych trening\u00f3w w Z2.',
-            'super_text': f'Solidna baza tlenowa \u2014 VT1 przy {_vt1p:.0f}% VO\u2082max' + (f' z szerokim gapem {_gap:.0f} bpm mi\u0119dzy progami' if _gap >= 25 else '') + '. Tw\u00f3j fundament aerobowy jest mocny.',
+            'limiter_text': _vt1_lim_txt,
+            'super_text': _vt1_sup_txt,
             'tip': 'D\u0142ugie biegi Z2 + obj\u0119to\u015b\u0107'
         }
         
@@ -3548,10 +3572,18 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             }
         
         # ── CONTEXTUAL OVERRIDES ──
-        # "Threshold trap": VT2 high % but low absolute speed → real limiter is VO2max
+        # "Threshold trap": VT2 high % but low absolute performance → real limiter is VO2max
+        _is_vt2_trap = False
         if _vt2p >= 88 and _pc.get('level_by_speed') in ('Sedentary', 'Recreational'):
+            _is_vt2_trap = True
+        elif _vt2p >= 85 and pctile_val < 50:
+            _is_vt2_trap = True
+        
+        if _is_vt2_trap:
             _cat['vo2max']['score'] *= 0.8
-            _cat['vo2max']['limiter_text'] = f'Pr\u00f3g wysoki ({_vt2p:.0f}% VO\u2082max) ale pr\u0119dko\u015b\u0107 absolutna niska \u2014 prawdziwym limiterem jest niski VO\u2082max. Buduj sufit tlenowy interwa\u0142ami i obj\u0119to\u015bci\u0105.'
+            _cat['vo2max']['limiter_text'] = f'Pr\u00f3g wysoki ({_vt2p:.0f}% VO\u2082max) ale wydolno\u015b\u0107 absolutna niska (~{pctile_val:.0f} percentyl) \u2014 prawdziwym limiterem jest niski VO\u2082max. Buduj sufit tlenowy interwa\u0142ami i obj\u0119to\u015bci\u0105.'
+            # Also prevent VT2 from being SUPERMOC in trap scenario
+            _cat['vt2']['super_text'] = f'Pr\u00f3g przy {_vt2p:.0f}% VO\u2082max \u2014 dobry stosunek, ale sufit (VO\u2082max) wymaga podniesienia.'
         
         # Economy masking: high VO2 but poor economy
         if pctile_val >= 70 and _gz < -0.8:
@@ -3561,7 +3593,9 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         _valid = {k: v for k, v in _cat.items() if v.get('score') is not None}
         
         _limiter_key = min(_valid, key=lambda k: _valid[k]['score']) if _valid else None
-        _super_key = max((k for k in _valid if k != 'deconditioning'), key=lambda k: _valid[k]['score']) if _valid else None
+        # For superpower, skip deconditioning and categories with empty super_text
+        _super_candidates = {k: v for k, v in _valid.items() if k != 'deconditioning' and v.get('super_text')}
+        _super_key = max(_super_candidates, key=lambda k: _super_candidates[k]['score']) if _super_candidates else None
         
         _limiter = _valid.get(_limiter_key, {}) if _limiter_key else {}
         _superpower = _valid.get(_super_key, {}) if _super_key else {}
