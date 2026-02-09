@@ -807,7 +807,28 @@ def generate_plan(snap: PhysioSnapshot, profile: TrainingProfile, limiters: List
             week.append({"day": day_name, "type": "REST", "zone": "-", "duration_min": 0, "description": "Odpoczynek", "hr_target": "-"})
         elif "KEY" in stype:
             desc = _scale_session(stype, snap, sc, top_limiter.name)
-            zone = "Z4" if "Threshold" in desc or "cruise" in desc else "Z5"
+            # Smart zone detection from session content
+            # Priority: detect MAIN effort zone, ignore warmup/cooldown/pause mentions
+            _dl = desc.lower()
+            _has_interval = any(k in _dl for k in ('intervals', 'interwał', '×', 'x ', 'repeats', '4×4'))
+            _is_drill = any(k in _dl for k in ('drill', 'plyometr', 'strides', 'skip', 'knees', 'kicks'))
+            _is_breathing = any(k in _dl for k in ('imt', 'breathing', 'oddychanie', 'powerbreathe', 'oddech'))
+            if _has_interval and ('vo₂max' in _dl or ('z5' in _dl and 'pauza' not in _dl.split('z5')[0])):
+                zone = "Z5"
+            elif 'hill repeat' in _dl or ('4×4' in _dl and 'hr 1' in _dl and '56' in _dl):
+                zone = "Z5"
+            elif _is_drill or _is_breathing:
+                zone = "Z2"
+            elif 'threshold' in _dl or 'cruise' in _dl or 'tempo' in _dl or 'pogranicze z3' in _dl:
+                zone = "Z4"
+            elif 'fatmax' in _dl or ('z2' in _dl and 'long' in _dl) or ('z2' in _dl and 'easy' in _dl) or 'na czczo' in _dl:
+                zone = "Z2"
+            elif 'z3' in _dl and 'z4' not in _dl and 'z5' not in _dl:
+                zone = "Z3"
+            elif 'z2' in _dl:
+                zone = "Z2"
+            else:
+                zone = "Z4"
             week.append({"day": day_name, "type": "Key Session", "zone": zone, "duration_min": dur, "description": desc, "hr_target": ""})
         elif "long" in stype.lower():
             fat_note = f" (FATmax zone: HR ~{snap.fatmax_hr:.0f}, ~{snap.fatmax_gmin*60:.0f}g fat/h)" if snap.fatmax_hr > 0 else ""

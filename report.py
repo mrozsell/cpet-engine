@@ -1190,11 +1190,18 @@ def compute_profile_scores(ct):
     elif _slp <= 34: _vent_sc = 35 + (34 - _slp) / 4 * 25
     else: _vent_sc = max(5, 35 - (_slp - 34) / 6 * 30)
     _vent_sc = max(0, min(100, _vent_sc))
+    # Ventilation limiter text: severity-dependent
+    if _slp >= 34:
+        _vent_lim = f'Efektywność wentylacyjna istotnie ograniczona (VE/VCO₂ slope: {_slp:.1f}). Oddychasz znacząco więcej niż potrzeba na daną produkcję CO₂. Trening oddechowy i konsultacja ze specjalistą.'
+    elif _slp >= 30:
+        _vent_lim = f'Efektywność wentylacyjna umiarkowanie obniżona (VE/VCO₂ slope: {_slp:.1f}). Trening oddechowy i interwały tlenowe mogą poprawić ekonomię oddychania.'
+    else:
+        _vent_lim = f'Efektywność wentylacyjna w normie, ale najniższa z Twoich kategorii (VE/VCO₂ slope: {_slp:.1f}). To nie jest istotne ograniczenie — Twoja wentylacja działa prawidłowo. Marginalny potencjał poprawy przez trening oddechowy.'
     _cat['ventilation'] = {
         'score': _vent_sc,
         'label': 'Wentylacja',
         'icon': '💨',
-        'limiter_text': f'Efektywność wentylacyjna ograniczona (VE/VCO₂ slope: {_slp:.1f}). Oddychasz więcej niż potrzeba na daną produkcję CO₂. Trening oddechowy i praca nad wzorcem oddychania mogą pomóc.',
+        'limiter_text': _vent_lim,
         'super_text': f'Wyjątkowo efektywne oddychanie (VE/VCO₂ slope: {_slp:.1f}) — Twoje płuca doskonale radzą sobie z wymianą gazową przy minimalnym wysiłku wentylacyjnym.',
         'tip': 'Trening oddechowy + technika oddychania'
     }
