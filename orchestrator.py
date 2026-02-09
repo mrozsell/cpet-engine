@@ -1043,16 +1043,19 @@ class CPET_Orchestrator:
             canon_table = ReportAdapter.build_canon_table(self.processed, self.results, self.cfg)
             text_report = ReportAdapter.render_text_report(canon_table)
             html_report = ReportAdapter.render_html_report(canon_table)
+            html_report_lite = ReportAdapter.render_lite_html_report(canon_table)
         except Exception as e:
             canon_table = {}
             text_report = f"[RAPORT NIEDOSTĘPNY: {e}]"
             html_report = f"<html><body><h1>Raport niedostępny</h1><p>{e}</p></body></html>"
+            html_report_lite = html_report
 
         self._last_report = {
             "outputs_calc_only": outputs,
             "trainer_canon_flat": trainer_canon_flat,
             "canon_table": canon_table,
             "text_report": text_report, "html_report": html_report,
+            "html_report_lite": html_report_lite,
             "raw_results": self.results
         }
         return self._last_report

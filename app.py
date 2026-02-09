@@ -133,6 +133,15 @@ with st.sidebar:
         help="Plik z danymi breath-by-breath z ergospirometru"
     )
 
+    st.markdown("---")
+    st.markdown("### 📄 Typ raportu")
+    report_type = st.radio(
+        "Wybierz format raportu",
+        ["PRO — Pełna diagnostyka", "LITE — Dla sportowca"],
+        index=0,
+        help="PRO: pełny raport z danymi diagnostycznymi. LITE: uproszczony, wizualny raport dla klienta."
+    )
+
     auto_info = {}
     if uploaded_file is not None:
         try:
@@ -448,17 +457,25 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                     except Exception as ex:
                         st.warning(f"⚠️ E20: {ex}")
 
-                html_content = results["html_report"]
+                # Select report based on user choice
+                is_lite = "LITE" in report_type
+                if is_lite and "html_report_lite" in results:
+                    html_content = results["html_report_lite"]
+                    report_label = "LITE"
+                else:
+                    html_content = results["html_report"]
+                    report_label = "PRO"
+                
                 if e20_html:
                     html_content = html_content.replace("</body>", e20_html + "</body>")
 
                 st.components.v1.html(html_content, height=4000, scrolling=True)
 
                 safe_name = re.sub(r'[^\w\s-]', '', athlete_name or 'raport').replace(' ', '_')
-                filename_html = f"CPET_Report_{safe_name}_{test_date}.html"
+                filename_html = f"CPET_{report_label}_{safe_name}_{test_date}.html"
 
                 st.download_button(
-                    label="💾 Pobierz raport HTML",
+                    label=f"💾 Pobierz raport {report_label} (HTML)",
                     data=html_content,
                     file_name=filename_html,
                     mime="text/html",

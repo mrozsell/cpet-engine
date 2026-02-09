@@ -3232,6 +3232,358 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         return h
 
     @staticmethod
+    def render_lite_html_report(ct):
+        """
+        LITE report — for athletes/clients. 
+        Simplified, visual, actionable. No raw diagnostic data.
+        Uses same canon_table (ct) as PRO report.
+        """
+        import numpy as np
+        g = ct.get
+        def v(key, default='-'):
+            val = g(key, default)
+            if val in (None, '', '[BRAK]', 'None', 'nan'): return default
+            return str(val)
+        def esc(s):
+            return str(s).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+        def _n(val, fmt='.1f', default='-'):
+            try:
+                n = float(val)
+                return f'{n:{fmt}}'
+            except: return default
+        def _fmt_dur(sec):
+            try:
+                s=int(float(sec)); return f'{s//60}:{s%60:02d}'
+            except: return '-'
+        def badge(text, color='#64748b', bg=None):
+            if not bg:
+                bg = color + '18'
+            return f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:{bg};color:{color};">{text}</span>'
+
+        def gauge_svg(score, label, size=90, subtitle=''):
+            pct=max(0,min(100,float(score) if score else 0))
+            if pct>=85: col='#16a34a'
+            elif pct>=70: col='#65a30d'
+            elif pct>=55: col='#d97706'
+            elif pct>=40: col='#ea580c'
+            else: col='#dc2626'
+            if pct == 0: col='#cbd5e1'
+            r=size*0.38;cx=size/2;cy=size*0.48
+            circ=2*3.14159*r;dash=circ*pct/100;gap=circ-dash
+            disp = f'{int(score)}' if score else '\u2014'
+            h_svg = size + (24 if subtitle else 14)
+            sub_txt = f'<text x="{cx}" y="{size+18}" text-anchor="middle" font-size="8" fill="#94a3b8">{subtitle}</text>' if subtitle else ''
+            return f'<svg width="{size}" height="{h_svg}" viewBox="0 0 {size} {h_svg}"><circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#e5e7eb" stroke-width="7"/><circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{col}" stroke-width="7" stroke-dasharray="{dash} {gap}" stroke-linecap="round" transform="rotate(-90 {cx} {cy})"/><text x="{cx}" y="{cy+2}" text-anchor="middle" dominant-baseline="middle" font-size="18" font-weight="700" fill="{col}">{disp}</text><text x="{cx}" y="{cy+r+12}" text-anchor="middle" font-size="9" font-weight="600" fill="#475569">{label}</text>{sub_txt}</svg>'
+
+        # =====================================================================
+        # GATHER DATA
+        # =====================================================================
+        name = v('athlete_name','Sportowiec')
+        age = v('age_y'); sex_pl = 'M' if v('sex')=='male' else 'K'
+        weight = v('body_mass_kg'); height = v('height_cm')
+        modality = v('modality','run')
+        test_date = v('test_date','')
+        protocol = v('protocol_name')
+        
+        e00 = g('_e00_raw',{})
+        t_stop = e00.get('t_stop',0)
+        dur_str = _fmt_dur(t_stop)
+        
+        vo2_rel = g('VO2max_ml_kg_min')
+        vo2_abs = g('VO2max_L_min') or g('VO2max_abs_Lmin')
+        e15 = g('_e15_raw',{})
+        vo2_class = e15.get('vo2_class_pop','?')
+        vo2_pctile = e15.get('vo2_percentile_approx',50)
+        vo2_det = e15.get('vo2_determination','VO2peak')
+        vo2_class_sport = e15.get('vo2_class_sport_desc','')
+        hr_peak = g('HR_peak')
+        rer_peak = g('RER_peak')
+        
+        vt1_hr = g('VT1_HR_bpm'); vt1_time = g('VT1_Time_s'); vt1_pct = g('VT1_pct_VO2peak')
+        vt2_hr = g('VT2_HR_bpm'); vt2_time = g('VT2_Time_s'); vt2_pct = g('VT2_pct_VO2peak')
+        vt1_speed = g('VT1_Speed'); vt2_speed = g('VT2_Speed')
+        
+        e16 = g('_e16_raw',{})
+        zones_data = e16.get('zones',{})
+        
+        e10 = g('_e10_raw',{})
+        fatmax = e10.get('mfo_gmin'); fatmax_hr = e10.get('fatmax_hr')
+        fatmax_pct_vo2 = e10.get('fatmax_pct_vo2peak')
+        fatmax_zone_lo = e10.get('fatmax_zone_hr_low'); fatmax_zone_hi = e10.get('fatmax_zone_hr_high')
+        
+        e08 = g('_e08_raw',{})
+        hrr1 = e08.get('hrr_1min')
+        
+        e03 = g('_e03_raw',{})
+        ve_vco2_slope = g('VE_VCO2_slope') or e03.get('slope_to_vt2')
+        
+        e06 = g('_e06_raw',{})
+        gain_z = e06.get('gain_z_score')
+        
+        e05 = g('_e05_raw',{})
+        o2p_pct = e05.get('pct_predicted_friend')
+        
+        _pc = ct.get('_performance_context', {})
+        
+        try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
+        except: pctile_val = 50
+        
+        _hrr_score = 0
+        try:
+            _hrr_val = float(hrr1) if hrr1 else 0
+            if _hrr_val >= 50: _hrr_score = 95
+            elif _hrr_val >= 40: _hrr_score = 85
+            elif _hrr_val >= 30: _hrr_score = 72
+            elif _hrr_val >= 22: _hrr_score = 58
+            elif _hrr_val >= 15: _hrr_score = 42
+            elif _hrr_val > 0: _hrr_score = 25
+        except: pass
+        
+        _vt2_score = 0
+        try:
+            _vt2p = float(vt2_pct) if vt2_pct else 75
+            _vt2_score = max(0, min(100, (_vt2p - 60) / 40 * 100))
+        except: pass
+        
+        _vent_score = 65
+        try:
+            _slp = float(ve_vco2_slope) if ve_vco2_slope else 30
+            if _slp < 25: _vent_score = 95
+            elif _slp < 28: _vent_score = 80
+            elif _slp < 30: _vent_score = 68
+            elif _slp < 34: _vent_score = 50
+            else: _vent_score = 30
+        except: pass
+        
+        _econ_score = 50
+        try:
+            _gz = float(gain_z) if gain_z else 0
+            _econ_score = min(100, max(0, 50 + _gz * 20))
+        except: pass
+        
+        _overall = 0
+        try:
+            _overall = pctile_val * 0.30 + _vt2_score * 0.25 + _vent_score * 0.15 + _hrr_score * 0.15 + _econ_score * 0.15
+        except: pass
+        
+        if _overall >= 85: _grade = 'Elitarny'
+        elif _overall >= 72: _grade = 'Bardzo dobry'
+        elif _overall >= 58: _grade = 'Dobry'
+        elif _overall >= 42: _grade = 'Przeciętny'
+        else: _grade = 'Do poprawy'
+        
+        _grade_col = '#16a34a' if _overall >= 72 else ('#d97706' if _overall >= 50 else '#dc2626')
+        
+        # =====================================================================
+        # BUILD HTML
+        # =====================================================================
+        
+        h = f'''<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CPET Report LITE — {esc(name)}</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a;line-height:1.6;}}
+.wrap{{max-width:780px;margin:0 auto;padding:20px;}}
+.card{{background:white;border-radius:14px;border:1px solid #e2e8f0;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}}
+.section-icon{{font-size:22px;margin-right:8px;vertical-align:middle;}}
+.section-title{{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;}}
+@media print{{body{{background:white;}} .wrap{{max-width:100%;padding:10px;}} .card{{break-inside:avoid;box-shadow:none;}}}}
+</style></head><body><div class="wrap">'''
+
+        # ─── HEADER ───
+        h += f'''<div style="padding:20px 24px;background:linear-gradient(135deg,#1e293b 0%,#334155 50%,#475569 100%);border-radius:16px;color:white;margin-bottom:18px;">
+  <div style="font-size:13px;color:#94a3b8;margin-bottom:2px;">Raport z testu wydolnościowego CPET</div>
+  <div style="font-size:26px;font-weight:700;margin-bottom:6px;">{esc(name)}</div>
+  <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#cbd5e1;">
+    <span>📅 {test_date}</span>
+    <span>🏃 {"Bieżnia" if modality=="run" else "Rower"}</span>
+    <span>⏱️ Czas: {dur_str}</span>
+    <span>❤️ HR max: {_n(hr_peak,".0f","-")} bpm</span>
+  </div>
+</div>'''
+
+        # ─── 1. TWÓJ WYNIK ───
+        h += f'''<div class="card">
+  <div class="section-title"><span class="section-icon">🏆</span>Twój wynik</div>
+  <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+    <div style="text-align:center;">
+      <div style="font-size:52px;font-weight:800;color:#0f172a;line-height:1;">{_n(vo2_rel)}</div>
+      <div style="font-size:14px;color:#64748b;margin-top:2px;">ml/kg/min</div>
+      <div style="font-size:12px;color:#94a3b8;">VO\u2082{"max" if str(vo2_det)=="VO2max" else "peak"}</div>
+    </div>
+    <div style="flex:1;min-width:200px;">
+      <div style="margin-bottom:8px;">
+        <span style="font-size:18px;font-weight:700;color:{_grade_col};">{_grade}</span>
+        <span style="font-size:12px;color:#94a3b8;margin-left:8px;">Wynik ogólny: {_overall:.0f}/100</span>
+      </div>
+      <div style="position:relative;height:18px;border-radius:9px;overflow:hidden;display:flex;margin-bottom:4px;">
+        <div style="flex:20;background:#dc2626;"></div><div style="flex:20;background:#ea580c;"></div>
+        <div style="flex:15;background:#eab308;"></div><div style="flex:15;background:#22c55e;"></div>
+        <div style="flex:15;background:#3b82f6;"></div><div style="flex:15;background:#7c3aed;"></div>
+        <div style="position:absolute;left:{min(97,max(3,pctile_val))}%;top:-3px;font-size:20px;transform:translateX(-50%);">\u25bc</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;">
+        <span>S\u0142aby</span><span>Przeci\u0119tny</span><span>Dobry</span><span>Bardzo dobry</span><span>Elitarny</span>
+      </div>
+      <div style="font-size:12px;color:#475569;margin-top:6px;">
+        Kategoria: <b>{esc(str(vo2_class))}</b> (~{_n(vo2_pctile,".0f","?")} percentyl)
+      </div>
+    </div>
+  </div>
+</div>'''
+
+        # ─── 2. PROFIL WYDOLNOŚCI ───
+        h += f'''<div class="card">
+  <div class="section-title"><span class="section-icon">📊</span>Profil wydolno\u015bci</div>
+  <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:8px;text-align:center;">
+    {gauge_svg(min(100, pctile_val), 'Wydolno\u015b\u0107', subtitle='VO\u2082max')}
+    {gauge_svg(min(100, _vt2_score), 'Pr\u00f3g', subtitle='VT2')}
+    {gauge_svg(min(100, _vent_score), 'Oddychanie', subtitle='Wentylacja')}
+    {gauge_svg(min(100, _econ_score), 'Ekonomia', subtitle='Ruch')}
+    {gauge_svg(min(100, _hrr_score), 'Regeneracja', subtitle='HRR')}
+  </div>
+  <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
+    Ka\u017cdy wska\u017anik w skali 0\u2013100. Powy\u017cej 70 = bardzo dobrze. Powy\u017cej 85 = poziom sportowy.
+  </div>
+</div>'''
+
+        # ─── 3. STREFY TRENINGOWE ───
+        zone_colors = ['#22c55e','#84cc16','#eab308','#f97316','#ef4444']
+        zone_names = ['Z1 Regeneracja','Z2 Baza tlenowa','Z3 Tempo','Z4 Pr\u00f3g','Z5 VO\u2082max']
+        zone_feelings = [
+            'Luz, rozmowa bez problemu',
+            'Komfortowy wysi\u0142ek, rozmowa OK',
+            'Czujesz wysi\u0142ek, kr\u00f3tkie zdania',
+            'Ci\u0119\u017cko, pojedyncze s\u0142owa',
+            'Maksymalny wysi\u0142ek, bez rozmowy'
+        ]
+        zone_uses = [
+            'Rozgrzewka, sch\u0142adzanie, dzie\u0144 regeneracyjny',
+            'D\u0142ugie biegi, baza aerobowa \u2014 tu sp\u0119dzasz 70-80% czasu',
+            'Trening tempa, biegi progowe',
+            'Interwa\u0142y progowe, wy\u015bcigi 10km-HM',
+            'Interwa\u0142y VO\u2082max, szybkie powt\u00f3rzenia'
+        ]
+        
+        h += '<div class="card">'
+        h += '<div class="section-title"><span class="section-icon">\U0001f49a</span>Twoje strefy treningowe</div>'
+        
+        # VT1/VT2 cards
+        h += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
+        if vt1_hr:
+            _vt1_spd = f' | {_n(vt1_speed,".1f")} km/h' if vt1_speed else ''
+            h += f'<div style="flex:1;min-width:180px;padding:12px;background:#f0fdf4;border-radius:10px;border-left:4px solid #22c55e;"><div style="font-size:11px;color:#475569;font-weight:600;">Pr\u00f3g tlenowy (VT1)</div><div style="font-size:22px;font-weight:700;color:#16a34a;">\u2764\ufe0f {_n(vt1_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt1_pct,".0f")}% VO\u2082max{_vt1_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Poni\u017cej tego t\u0119tna \u2014 spalasz g\u0142\u00f3wnie t\u0142uszcze</div></div>'
+        if vt2_hr:
+            _vt2_spd = f' | {_n(vt2_speed,".1f")} km/h' if vt2_speed else ''
+            h += f'<div style="flex:1;min-width:180px;padding:12px;background:#eff6ff;border-radius:10px;border-left:4px solid #3b82f6;"><div style="font-size:11px;color:#475569;font-weight:600;">Pr\u00f3g mleczanowy (VT2)</div><div style="font-size:22px;font-weight:700;color:#2563eb;">\u2764\ufe0f {_n(vt2_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt2_pct,".0f")}% VO\u2082max{_vt2_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Powy\u017cej tego \u2014 organizm nie nad\u0105\u017ca z usuwaniem mleczanu</div></div>'
+        h += '</div>'
+        
+        for i, (zname, zcol, zfeel, zuse) in enumerate(zip(zone_names, zone_colors, zone_feelings, zone_uses)):
+            zkey = f'z{i+1}'
+            zd = zones_data.get(zkey, {})
+            hr_lo = zd.get('hr_low','?'); hr_hi = zd.get('hr_high','?')
+            spd_lo = zd.get('speed_low',''); spd_hi = zd.get('speed_high','')
+            spd_str = f' | {_n(spd_lo,".1f","")}-{_n(spd_hi,".1f","")} km/h' if spd_lo else ''
+            
+            h += f'''<div style="display:flex;align-items:center;gap:12px;padding:10px;margin-bottom:6px;border-radius:10px;background:{'#fafafa' if i%2==0 else 'white'};">
+  <div style="width:14px;height:14px;border-radius:50%;background:{zcol};flex-shrink:0;"></div>
+  <div style="flex:1;">
+    <div style="font-size:13px;font-weight:600;color:#0f172a;">{zname}</div>
+    <div style="font-size:11px;color:#64748b;">{zfeel}</div>
+    <div style="font-size:10px;color:#94a3b8;">{zuse}</div>
+  </div>
+  <div style="text-align:right;flex-shrink:0;">
+    <div style="font-size:16px;font-weight:700;color:#0f172a;">{hr_lo}-{hr_hi}</div>
+    <div style="font-size:10px;color:#94a3b8;">bpm{spd_str}</div>
+  </div>
+</div>'''
+        
+        h += '</div>'
+
+        # ─── 4. SPALANIE TŁUSZCZÓW ───
+        if fatmax:
+            h += f'''<div class="card">
+  <div class="section-title"><span class="section-icon">\U0001f525</span>Spalanie t\u0142uszcz\u00f3w</div>
+  <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+    <div style="text-align:center;">
+      <div style="font-size:36px;font-weight:700;color:#16a34a;">{_n(fatmax,".2f")}</div>
+      <div style="font-size:12px;color:#64748b;">g/min (FATmax)</div>
+    </div>
+    <div style="flex:1;min-width:200px;font-size:13px;color:#334155;line-height:1.7;">
+      Maksymalne spalanie t\u0142uszcz\u00f3w przy <b>HR {_n(fatmax_hr,".0f")} bpm</b> ({_n(fatmax_pct_vo2,".0f")}% VO\u2082max).<br>
+      \U0001f4a1 <b>Strefa FATmax: {_n(fatmax_zone_lo,".0f")}-{_n(fatmax_zone_hi,".0f")} bpm</b> \u2014 trenuj w tej strefie na d\u0142ugich, wolnych biegach.
+    </div>
+  </div>
+</div>'''
+
+        # ─── 5. CO TO ZNACZY ───
+        h += '<div class="card">'
+        h += '<div class="section-title"><span class="section-icon">\U0001f4a1</span>Co oznaczaj\u0105 Twoje wyniki</div>'
+        h += '<div style="font-size:13px;color:#334155;line-height:1.8;">'
+        
+        _interp = []
+        try:
+            _vo2v = float(vo2_rel) if vo2_rel else 0
+            if pctile_val >= 85:
+                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) plasuje Ci\u0119 w <b>czo\u0142\u00f3wce</b> \u2014 to poziom sportowy. \U0001f4aa')
+            elif pctile_val >= 65:
+                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>powy\u017cej przeci\u0119tnej</b> \u2014 dobra baza do dalszego rozwoju.')
+            elif pctile_val >= 40:
+                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) jest <b>w normie</b> \u2014 jest du\u017cy potencja\u0142 na popraw\u0119 regularnym treningiem.')
+            else:
+                _interp.append(f'Tw\u00f3j VO\u2082max ({_vo2v:.1f} ml/kg/min) wskazuje na <b>potencja\u0142 do poprawy</b> \u2014 regularny trening przyniesie szybkie efekty.')
+        except: pass
+        
+        try:
+            _vt1p = float(vt1_pct) if vt1_pct else 0
+            _vt2p = float(vt2_pct) if vt2_pct else 0
+            if _vt2p >= 85:
+                _interp.append(f'Twoje progi s\u0105 <b>wysoko ustawione</b> (VT2 przy {_vt2p:.0f}% VO\u2082max) \u2014 mo\u017cesz utrzymywa\u0107 wysokie tempo przez d\u0142ugi czas.')
+            elif _vt2p >= 75:
+                _interp.append(f'Twoje progi s\u0105 na <b>dobrym poziomie</b> (VT2 przy {_vt2p:.0f}%). Trening tempo i interwa\u0142y progowe mog\u0105 je jeszcze podnie\u015b\u0107.')
+            elif _vt2p > 0:
+                _interp.append(f'Twoje progi maj\u0105 <b>przestrze\u0144 do poprawy</b> (VT2 przy {_vt2p:.0f}%). Systematyczny trening w Z3-Z4 pomo\u017ce je podnie\u015b\u0107.')
+        except: pass
+        
+        try:
+            _hrr_val = float(hrr1) if hrr1 else 0
+            if _hrr_val >= 40:
+                _interp.append(f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 t\u0119tno spada szybko po wysi\u0142ku (HRR {_hrr_val:.0f} bpm/min).')
+            elif _hrr_val >= 25:
+                _interp.append(f'Regeneracja na <b>dobrym poziomie</b> (HRR {_hrr_val:.0f} bpm/min).')
+            elif _hrr_val > 0:
+                _interp.append(f'Regeneracja mo\u017ce by\u0107 <b>lepsza</b> (HRR {_hrr_val:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.')
+        except: pass
+        
+        try:
+            _gz = float(gain_z) if gain_z else None
+            if _gz is not None:
+                if _gz > 0.5:
+                    _interp.append('Twoja ekonomia ruchu jest <b>ponadprzeci\u0119tna</b> \u2014 zu\u017cywasz mniej energii na danym tempie ni\u017c przeci\u0119tna osoba.')
+                elif _gz < -0.5:
+                    _interp.append('Ekonomia ruchu do poprawy \u2014 \u0107wiczenia techniczne i trening si\u0142owy mog\u0105 pom\u00f3c biega\u0107 wydajniej.')
+        except: pass
+        
+        for line in _interp:
+            h += f'<p style="margin-bottom:8px;">{line}</p>'
+        
+        if not _interp:
+            h += '<p>Brak wystarczaj\u0105cych danych do pe\u0142nej interpretacji.</p>'
+        
+        h += '</div></div>'
+
+        # ─── 6. WYKRESY ───
+        charts_html = ReportAdapter._render_charts_html(ct)
+        if charts_html:
+            h += f'<div class="card"><div class="section-title"><span class="section-icon">\U0001f4c8</span>Wykresy</div>{charts_html}</div>'
+
+        # ─── FOOTER ───
+        h += '<div style="padding:16px;font-size:10px;color:#9ca3af;text-align:center;">CPET Report LITE v1.0 | Wygenerowano automatycznie | Szczeg\u00f3\u0142owy raport PRO dost\u0119pny na \u017cyczenie</div>'
+        h += '</div></body></html>'
+        
+        return h
+
+    @staticmethod
     def _gasex_report(ct):
         r17 = ct.get('_e17_raw', {})
         if not r17 or r17.get('status') in (None, 'NO_SIGNAL', 'NO_TIME'):
