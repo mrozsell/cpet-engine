@@ -1459,9 +1459,9 @@ class Engine_E02_Thresholds_v4:
     # ── Validation ranges (RELAXED per Benítez-Muñoz 2024) ────────────────
     # VT1: covers low training (48%) to high training (70%)
     VT1_VO2_PCT_MIN = 40.0
-    VT1_VO2_PCT_MAX = 80.0
+    VT1_VO2_PCT_MAX = 88.0   # expanded: trained athletes VT1 can be 75-90% VO₂peak (Lucia 1999)
     VT1_HR_PCT_MIN = 55.0
-    VT1_HR_PCT_MAX = 85.0
+    VT1_HR_PCT_MAX = 90.0    # expanded: trained athletes VT1 HR can be 85-90% HRmax
 
     # VT2: covers wide range
     VT2_VO2_PCT_MIN = 65.0
@@ -1691,6 +1691,13 @@ class Engine_E02_Thresholds_v4:
             'has_power': 'power' in df_ex.columns and df_ex['power'].notna().sum() > 5,
         }
 
+        # ── Step protocol detection from Markers + Speed ─────────────────
+        steps = cls._detect_steps_from_markers_and_speed(df_ex)
+        params['is_step_protocol'] = steps is not None and len(steps) >= 4
+        if params['is_step_protocol']:
+            params['df_step'] = cls._step_average_df(df_ex, steps)
+            params['n_steps'] = len(steps)
+
         return df_ex, params
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1752,12 +1759,150 @@ class Engine_E02_Thresholds_v4:
         return best
 
     # ══════════════════════════════════════════════════════════════════════════
+    # STEP PROTOCOL HELPERS (V6 — step-aware VT detection)
+    # ══════════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _detect_steps_from_markers_and_speed(df_ex):
+        """Detect step boundaries from Marker column ('70w', '8km/h') and speed changes."""
+        n = len(df_ex)
+        if n < 30:
+            return None
+        boundaries = []
+        if 'Marker' in df_ex.columns:
+            for i in range(n):
+                m = df_ex['Marker'].iloc[i]
+                if pd.notna(m) and isinstance(m, str) and m.strip():
+                    m = m.strip().lower()
+                    if m.endswith('w') and m[:-1].replace('.', '').isdigit():
+                        boundaries.append((i, float(m[:-1]), 'power'))
+                    elif 'km/h' in m or 'km' in m:
+                        num = ''.join(c for c in m if c.isdigit() or c == '.')
+                        if num:
+                            boundaries.append((i, float(num), 'speed'))
+        has_speed = 'speed' in df_ex.columns and df_ex['speed'].notna().sum() > 10
+        if has_speed:
+            spd = df_ex['speed'].round(1)
+            for i in range(1, n):
+                if abs(spd.iloc[i] - spd.iloc[i - 1]) > 0.3 and spd.iloc[i] > 0:
+                    near_marker = any(abs(i - b[0]) < 10 for b in boundaries)
+                    if not near_marker:
+                        boundaries.append((i, float(spd.iloc[i]), 'speed'))
+        if len(boundaries) < 3:
+            return None
+        boundaries.sort(key=lambda x: x[0])
+        steps = []
+        for j in range(len(boundaries)):
+            start = boundaries[j][0]
+            load = boundaries[j][1]
+            end = boundaries[j + 1][0] - 1 if j + 1 < len(boundaries) else n - 1
+            if end - start >= 5:
+                steps.append((start, end, load))
+        return steps if len(steps) >= 3 else None
+
+    @staticmethod
+    def _step_average_df(df_ex, steps, steady_pct=0.70):
+        """Build step-averaged DataFrame using last steady_pct of each step."""
+        cols = [c for c in df_ex.columns if c.endswith('_sm') or c in
+                ('time', 'vo2_ml', 'vco2_ml', 've', 'hr', 'rer', 'peto2', 'petco2',
+                 'vo2_pct', 'hr_pct', 'speed', 've_vo2', 've_vco2', 'exco2')]
+        rows = []
+        for s, e, load in steps:
+            skip = int((e - s) * (1.0 - steady_pct))
+            ss = s + skip
+            if e - ss < 3:
+                ss = s
+            row = {'_load': load}
+            for c in cols:
+                if c in df_ex.columns:
+                    row[c] = pd.to_numeric(df_ex[c].iloc[ss:e + 1], errors='coerce').mean()
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    @classmethod
+    def _step_vslope(cls, df_s, df, params):
+        """V-slope breakpoint on step-averaged data."""
+        vo2_col = 'vo2_ml_sm' if 'vo2_ml_sm' in df_s.columns else 'vo2_ml'
+        vco2_col = 'vco2_ml_sm' if 'vco2_ml_sm' in df_s.columns else 'vco2_ml'
+        if vo2_col not in df_s.columns or vco2_col not in df_s.columns:
+            return None
+        vo2 = df_s[vo2_col].dropna().values
+        vco2 = df_s[vco2_col].dropna().values
+        n = len(vo2)
+        if n < 5:
+            return None
+        best_rss = np.inf
+        best_i = None
+        best_s = None
+        for i in range(max(2, int(n * 0.15)), min(n - 2, int(n * 0.85))):
+            p1 = np.polyfit(vo2[:i], vco2[:i], 1)
+            p2 = np.polyfit(vo2[i:], vco2[i:], 1)
+            r1 = np.sum((vco2[:i] - np.polyval(p1, vo2[:i])) ** 2)
+            r2 = np.sum((vco2[i:] - np.polyval(p2, vo2[i:])) ** 2)
+            if p2[0] > p1[0] * 1.20 and r1 + r2 < best_rss:
+                best_rss = r1 + r2
+                best_i = i
+                best_s = (p1[0], p2[0])
+        if best_i is None:
+            return None
+        s1, s2 = best_s
+        ratio = s2 / max(s1, 0.01)
+        step_time = df_s.iloc[best_i]['time']
+        closest = (df['time'] - step_time).abs().idxmin()
+        row = df.loc[closest]
+        bp_pct = float(row.get('vo2_pct', 50))
+        if bp_pct > 90:
+            return None
+        if bp_pct > 85 and ratio < 1.5:
+            return None
+        conf = 0.93 if ratio > 1.5 else 0.87
+        return cls._row_to_candidate(row, params, 'vslope', conf,
+            {'slope1': s1, 'slope2': s2, 'slope_ratio': ratio, 'source': 'step_averaged'})
+
+    @classmethod
+    def _step_exco2(cls, df_s, df, params):
+        """ExCO2 breakpoint on step-averaged data."""
+        if 'exco2' not in df_s.columns or 'time' not in df_s.columns:
+            return None
+        ex = df_s['exco2'].values
+        n = len(ex)
+        if n < 5:
+            return None
+        best_rss = np.inf
+        best_i = None
+        best_s = None
+        x = np.arange(n)
+        for i in range(max(2, int(n * 0.15)), min(n - 2, int(n * 0.85))):
+            p1 = np.polyfit(x[:i], ex[:i], 1)
+            p2 = np.polyfit(x[i:], ex[i:], 1)
+            r1 = np.sum((ex[:i] - np.polyval(p1, x[:i])) ** 2)
+            r2 = np.sum((ex[i:] - np.polyval(p2, x[i:])) ** 2)
+            if p2[0] > p1[0] * 1.2 and r1 + r2 < best_rss:
+                best_rss = r1 + r2
+                best_i = i
+                best_s = (p1[0], p2[0])
+        if best_i is None:
+            return None
+        step_time = df_s.iloc[best_i]['time']
+        closest = (df['time'] - step_time).abs().idxmin()
+        row = df.loc[closest]
+        return cls._row_to_candidate(row, params, 'exco2_bp', 0.88,
+            {'slope1': best_s[0], 'slope2': best_s[1], 'source': 'step_averaged'})
+
+    # ══════════════════════════════════════════════════════════════════════════
     # VT1 DETECTION METHODS
     # ══════════════════════════════════════════════════════════════════════════
 
     @classmethod
     def _detect_vt1(cls, df: pd.DataFrame, params: Dict) -> ThresholdResult:
-        """Detect VT1 using multiple methods + consensus."""
+        """Detect VT1 using multiple methods + consensus.
+        V6: On step protocols, step-averaged vslope/exco2 have priority over BxB."""
+
+        # ── STEP PROTOCOL BRANCH ────────────────────────────────────────
+        if params.get('is_step_protocol'):
+            return cls._detect_vt1_step(df, params)
+
+        # ── RAMP / STANDARD BRANCH (original logic) ─────────────────────
 
         vt1 = ThresholdResult()
         candidates = {}
@@ -1851,6 +1996,87 @@ class Engine_E02_Thresholds_v4:
         cls._adjudicate_vt1(vt1, candidates, valid, df, params)
 
         return vt1
+
+    @classmethod
+    def _detect_vt1_step(cls, df: pd.DataFrame, params: Dict) -> ThresholdResult:
+        """V6: Step-protocol VT1 detection. Step-averaged vslope/exco2 have priority."""
+        vt1 = ThresholdResult()
+        df_s = params.get('df_step')
+        t_start = params['t_start']
+        t_dur = params['t_duration']
+        search_lo = t_start + t_dur * cls.VT1_SEARCH_START
+        search_hi = t_start + t_dur * cls.VT1_SEARCH_END
+        df_search = df[(df['time'] >= search_lo) & (df['time'] <= search_hi)].copy()
+        if len(df_search) < 20:
+            vt1.flags.append('VT1_SEARCH_RANGE_TOO_SMALL')
+            return vt1
+
+        # Phase 1: Step-averaged candidates (PRIMARY on step protocols)
+        step_cands = {}
+        if df_s is not None and len(df_s) >= 5:
+            c = cls._step_vslope(df_s, df, params)
+            if c and cls._validate_vt1(c, params):
+                step_cands['vslope'] = c
+            c = cls._step_exco2(df_s, df, params)
+            if c and cls._validate_vt1(c, params):
+                step_cands['exco2_bp'] = c
+
+        all_cands = dict(step_cands)
+
+        # Phase 2: If 2 step methods agree (within 120s) → use directly
+        if len(step_cands) >= 2:
+            times = [c.time_sec for c in step_cands.values()]
+            if max(times) - min(times) <= 120:
+                weights = [c.confidence for c in step_cands.values()]
+                consensus_t = np.average(times, weights=weights)
+                closest = (df['time'] - consensus_t).abs().idxmin()
+                row = df.loc[closest]
+                cls._fill_from_row(vt1, row, params)
+                vt1.confidence = min(0.95, np.mean(weights) + 0.05)
+                vt1.source = 'step_consensus'
+                vt1.methods_agreed = list(step_cands.keys())
+                vt1.n_methods = len(step_cands)
+                vt1.candidates = {k: cls._cand_to_dict(v) for k, v in all_cands.items()}
+                vt1.flags.append('STEP_CONSENSUS_VT1')
+                cls._adjudicate_vt1(vt1, all_cands, step_cands, df, params)
+                return vt1
+
+        # Phase 3: 1 step method → anchor + seek BxB confirmation
+        if len(step_cands) == 1:
+            step_name, step_cand = next(iter(step_cands.items()))
+            bxb_cands = {}
+            for method, key in [(cls._vt1_veq_vo2_nadir, 'veq_vo2_nadir'),
+                                (cls._vt1_veq_vo2_rise, 'veq_vo2_rise'),
+                                (cls._vt1_rer_crossing, 'rer_crossing')]:
+                try:
+                    c = method(df, params) if key == 'rer_crossing' else method(df, df_search, params)
+                    if c and cls._validate_vt1(c, params):
+                        bxb_cands[key] = c
+                except Exception:
+                    pass
+            close_bxb = {n: c for n, c in bxb_cands.items()
+                         if abs(c.time_sec - step_cand.time_sec) <= 150}
+            all_pool = {step_name: step_cand, **close_bxb}
+            all_cands.update(bxb_cands)
+            times = [c.time_sec for c in all_pool.values()]
+            weights = [c.confidence for c in all_pool.values()]
+            consensus_t = np.average(times, weights=weights)
+            closest = (df['time'] - consensus_t).abs().idxmin()
+            row = df.loc[closest]
+            cls._fill_from_row(vt1, row, params)
+            vt1.confidence = min(0.92, step_cand.confidence + 0.02 * len(close_bxb))
+            vt1.source = f'step_anchor:{step_name}'
+            vt1.methods_agreed = list(all_pool.keys())
+            vt1.n_methods = len(all_pool)
+            vt1.candidates = {k: cls._cand_to_dict(v) for k, v in all_cands.items()}
+            vt1.flags.append('STEP_ANCHOR_VT1')
+            cls._adjudicate_vt1(vt1, all_cands, all_pool, df, params)
+            return vt1
+
+        # Phase 4: No step candidates → fallback to standard BxB detection
+        vt1.flags.append('STEP_NO_CANDIDATES_FALLBACK_BXB')
+        params_no_step = {**params, 'is_step_protocol': False}
+        return cls._detect_vt1(df, params_no_step)
 
     @classmethod
     def _vt1_vslope(cls, df: pd.DataFrame, df_search: pd.DataFrame,
@@ -2634,7 +2860,16 @@ class Engine_E02_Thresholds_v4:
         1. No vt1_unreliable exclusion (exco2_bp at high VO2% is CORRECT for VT2)
         2. Priority fallback favors VT2 markers (veq_vco2_rise > exco2_bp)
         3. If tier1 markers cluster but rer_crossing is outlier → drop it
+        V6: On step protocols, boost exco2_bp and penalize veq_vco2_rise
         """
+        # V6: Step-aware VT2 weighting
+        if params.get('is_step_protocol') and len(pool) >= 2:
+            for name, cand in pool.items():
+                if name == 'exco2_bp':
+                    cand.confidence = min(0.98, cand.confidence * 1.15)
+                elif name == 'veq_vco2_rise':
+                    cand.confidence *= 0.75
+
         if len(pool) == 1:
             name, cand = next(iter(pool.items()))
             cls._apply_candidate(result, cand, df, params)
