@@ -4380,141 +4380,73 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
   </div>
 </div>'''
 
-        # ─── 2. PROFIL WYDOLNOŚCI + LIMITER / SUPERMOC ───
+        # ─── 2. PROFIL WYDOLNOŚCI — kompaktowa tabela priorytetów ───
         _sport_demands = _profile.get('sport_demands', {})
         
-        # Variant 4: build gauge list sorted by sport demand (highest first)
-        # Overall gauge always first, then sport-prioritized categories
-        _gauge_defs = [
-            ('vo2max',  'VO\u2082max',    'Wydolno\u015b\u0107', _cat.get('vo2max',{}).get('score',0) or min(100, _overall)),
-            ('vt2',     'Pr\u00f3g',      'VT2',        _cat.get('vt2',{}).get('score',0) or _vt2_score),
-            ('vt1',     'Pr\u00f3g',      'VT1',        _cat.get('vt1',{}).get('score',0)),
-            ('economy', 'Ekonomia',  'Ruch',       _cat.get('economy',{}).get('score',0) or _econ_score),
-            ('ventilation','Oddychanie','Wentylacja',_cat.get('ventilation',{}).get('score',0) or _vent_score),
-            ('cardiac', 'Serce',     'O\u2082 Pulse', _cat.get('cardiac',{}).get('score',0)),
-            ('recovery','Regeneracja','HRR',       _cat.get('recovery',{}).get('score',0) or _hrr_score),
-            ('substrate','FATmax',   'Substrat',   _cat.get('substrate',{}).get('score',0)),
-            ('breathing','Oddech',   'Wzorzec',    _cat.get('breathing',{}).get('score',0)),
-        ]
-        # Filter: only categories with score > 0 and with sport demand > 0 (or top 5)
-        _gauge_scored = [(k,lab,sub,sc) for k,lab,sub,sc in _gauge_defs if sc and sc > 0]
-        # Sort by demand descending, take top 5-6
-        _gauge_scored.sort(key=lambda x: -_sport_demands.get(x[0], 0))
-        _gauge_top = _gauge_scored[:6]  # max 6 gauges
-        # Ensure at least 4 gauges (pad with remaining if needed)
-        if len(_gauge_top) < 4:
-            _gauge_top = _gauge_scored[:4]
-        
         # Sport label for header
-        _sp_name = (ct.get('sport','') or ct.get('_sport','') or ct.get('modality','')).upper()
+        _sp_name = (ct.get('sport','') or ct.get('_sport','') or ct.get('_cfg_sport','') or ct.get('_prot_modality','') or ct.get('modality','')).upper()
         _sp_icon_map = {'RUN':'\U0001f3c3','HYROX':'\U0001f3cb\ufe0f','BIKE':'\U0001f6b4','TRIATHLON':'\U0001f3ca','CROSSFIT':'\U0001f4aa','MMA':'\U0001f94a','SOCCER':'\u26bd','SWIMMING':'\U0001f3ca','ROWING':'\U0001f6a3','XC_SKI':'\u26f7\ufe0f'}
         _sp_icon = _sp_icon_map.get(_sp_name, '\U0001f3af')
         _sp_lbl_map = {'RUN':'biegu','HYROX':'HYROX','BIKE':'kolarstwa','TRIATHLON':'triathlonu','CROSSFIT':'CrossFit','MMA':'MMA','SOCCER':'pi\u0142ki no\u017cnej','SWIMMING':'p\u0142ywania','ROWING':'wio\u015blarstwa','XC_SKI':'narciarstwa biegowego'}
-        _sp_lbl = _sp_lbl_map.get(_sp_name, '')
-        _sp_subtitle = f' <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:8px;">\u2b05 od najwa\u017cniejszych dla {_sp_icon} {_sp_lbl}</span>' if _sp_lbl and _sport_demands else ''
+        _sp_lbl = _sp_lbl_map.get(_sp_name, _sp_name)
         
-        # Build gauge HTML
-        _gauges_html = ''
-        for _gk, _glab, _gsub, _gsc in _gauge_top:
-            _gsc = min(100, max(0, _gsc or 0))
-            _gdem = _sport_demands.get(_gk, 0)
-            # Demand tier — no ring, just badge + sort + opacity
-            if _gdem >= 0.8:
-                _badge = '<div style="margin-top:4px;"><span style="font-size:8px;font-weight:700;padding:2px 8px;background:#fef3c7;color:#92400e;border-radius:4px;border-bottom:2px solid #f59e0b;">KLUCZOWE</span></div>'
-                _wrap_opacity = ''
-            elif _gdem >= 0.5:
-                _badge = '<div style="margin-top:4px;"><span style="font-size:8px;font-weight:600;padding:2px 8px;background:#e0f2fe;color:#0369a1;border-radius:4px;">WA\u017bNE</span></div>'
-                _wrap_opacity = ''
-            else:
-                _badge = '<div style="margin-top:4px;"><span style="font-size:8px;font-weight:600;padding:2px 8px;background:#f1f5f9;color:#94a3b8;border-radius:4px;">POMOCNICZE</span></div>'
-                _wrap_opacity = 'opacity:0.55;'
-            _gauges_html += f'<div style="text-align:center;{_wrap_opacity}">{gauge_svg(_gsc, _glab, subtitle=_gsub)}{_badge}</div>\n    '
+        _prio = _profile.get('priority_ranking', [])
         
         h += f'''<div class="card">
-  <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci{_sp_subtitle}</div>
-  <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:12px;text-align:center;">
-    {_gauges_html}
-  </div>
-  <div style="text-align:center;margin-top:10px;font-size:10px;color:#94a3b8;">
-    <span style="font-size:8px;font-weight:700;padding:1px 5px;background:#fef3c7;color:#92400e;border-radius:3px;border-bottom:2px solid #f59e0b;">KLUCZOWE</span> \u00a0
-    <span style="font-size:8px;font-weight:600;padding:1px 5px;background:#e0f2fe;color:#0369a1;border-radius:3px;">WA\u017bNE</span> \u00a0
-    <span style="font-size:8px;font-weight:600;padding:1px 5px;background:#f1f5f9;color:#94a3b8;border-radius:3px;">POMOCNICZE</span>
-    \u00a0\u00a0\u00b7\u00a0\u00a0 Skala 0\u2013100. Powy\u017cej 70 = bardzo dobrze.
-  </div>'''
+  <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">{_sp_icon} {_sp_lbl}</span></div>'''
         
-        # ── PRIORITY RANKING (replaces SUPERMOC/LIMITER + pills) ──
-        _prio = _profile.get('priority_ranking', [])
         if _prio:
-            _sport_name = (ct.get('sport') or ct.get('_sport') or ct.get('_cfg_sport') or ct.get('_prot_modality') or ct.get('modality') or '').upper()
-            _sport_label_map = {'RUN':'biegu','HYROX':'HYROX','BIKE':'kolarstwa','TRIATHLON':'triathlonu','CROSSFIT':'CrossFit','MMA':'MMA','SOCCER':'piłki nożnej','SWIMMING':'pływania','ROWING':'wioślarstwa','XC_SKI':'narciarstwa biegowego'}
-            _sp_label = _sport_label_map.get(_sport_name, _sport_name)
-            _sport_icon_map = {'RUN':'🏃','HYROX':'🏋️','BIKE':'🚴','TRIATHLON':'🏊','CROSSFIT':'💪','MMA':'🥊','SOCCER':'⚽','SWIMMING':'🏊','ROWING':'🚣','XC_SKI':'⛷️'}
-            _sp_icon = _sport_icon_map.get(_sport_name, '🎯')
+            def _pc(sc):
+                if sc >= 85: return '#059669'
+                if sc >= 70: return '#0d9488'
+                if sc >= 55: return '#d97706'
+                return '#dc2626'
             
-            _top5 = _prio[:5]
-            _ntop = len(_top5)
-            
-            def _prio_color(sc):
-                if sc >= 85: return '#059669', '#ecfdf5', '#a7f3d0'
-                if sc >= 70: return '#0d9488', '#f0fdfa', '#99f6e4'
-                if sc >= 55: return '#d97706', '#fffbeb', '#fde68a'
-                return '#dc2626', '#fef2f2', '#fecaca'
-            
-            def _rank_badge(idx, total):
-                if idx == 0: return 'PRIORYTET #1', '#dc2626'
-                if idx == 1: return 'PRIORYTET #2', '#ea580c'
-                if idx == total - 1: return 'TWÓJ ATUT', '#059669'
-                if idx == total - 2: return 'MOCNA STRONA', '#0d9488'
+            def _pb(idx, sc):
+                if idx < 3 and sc < 75:
+                    if idx == 0: return '\U0001f534 PRIORYTET #1', '#dc2626'
+                    if idx == 1: return '\U0001f534 PRIORYTET #2', '#ea580c'
+                    return '\U0001f7e0 PRIORYTET #3', '#ea580c'
+                if sc >= 90: return '\U0001f7e2 ATUT', '#059669'
+                if sc < 55: return '\U0001f7e0 DO POPRAWY', '#d97706'
                 return None, None
             
-            h += f'<div style="margin-top:16px;padding:14px;background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;">'
-            h += f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'
-            h += f'<span style="font-size:18px;">{_sp_icon}</span>'
-            h += f'<div><div style="font-size:12px;font-weight:700;color:#0f172a;">Ranking priorytetów — {_sp_label}</div>'
-            h += f'<div style="font-size:10px;color:#64748b;">od największego potencjału poprawy do atutu</div></div></div>'
-            h += '<div style="height:2px;background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981);border-radius:1px;margin-bottom:10px;opacity:0.5;"></div>'
+            # Table header
+            h += '''<div style="border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;margin-top:8px;">
+  <div style="display:flex;padding:5px 10px;background:#f1f5f9;font-size:8px;font-weight:600;color:#94a3b8;gap:4px;align-items:center;">
+    <span style="width:22px;">#</span><span style="width:22px;"></span><span style="flex:1;">Kategoria</span><span style="width:80px;">Wynik</span><span style="width:28px;"></span><span style="width:90px;"></span>
+  </div>'''
             
-            for i, p in enumerate(_top5):
+            for i, p in enumerate(_prio):
                 sc = p['score']
-                col, bg, bdr = _prio_color(sc)
-                badge_txt, badge_col = _rank_badge(i, _ntop)
-                stars_str = '★' * p['stars'] + '☆' * (3 - p['stars'])
-                bar_w = max(8, sc)
+                c = _pc(sc)
+                bt, bc = _pb(i, sc)
+                stars_str = '\u2605' * p['stars'] + '\u2606' * (3 - p['stars'])
+                is_p = i < 3 and sc < 75
+                is_a = sc >= 90
+                row_bg = '#fef2f208' if is_p else ('#ecfdf508' if is_a else ('#fff' if i % 2 == 0 else '#fafbfc'))
                 
-                is_top = i == 0
-                is_atut = i == _ntop - 1
-                row_bg = 'linear-gradient(135deg,#fef2f2,#fff7ed)' if is_top else ('linear-gradient(135deg,#ecfdf5,#f0fdfa)' if is_atut else '#fafbfc')
-                row_bdr = '#fecaca' if is_top else ('#a7f3d0' if is_atut else '#f1f5f9')
-                
-                h += f'<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:{row_bg};border-radius:8px;border:1px solid {row_bdr};margin-bottom:4px;">'
-                # Rank circle
-                h += f'<div style="width:24px;height:24px;border-radius:50%;background:{col};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">{i+1}</div>'
-                # Icon
-                h += f'<span style="font-size:14px;flex-shrink:0;">{p["icon"]}</span>'
-                # Label + stars
-                h += f'<div style="flex:0 0 90px;"><div style="font-size:11px;font-weight:600;color:#1e293b;">{p["label"]}</div>'
-                h += f'<div style="font-size:8px;color:{"#d97706" if p["stars"]>=2 else "#94a3b8"};">{stars_str}</div></div>'
-                # Bar
-                h += f'<div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">'
-                h += f'<div style="width:{bar_w}%;height:100%;background:linear-gradient(90deg,{col}88,{col});border-radius:3px;"></div></div>'
-                # Score
-                h += f'<div style="font-size:14px;font-weight:800;color:{col};width:28px;text-align:right;">{sc:.0f}</div>'
-                # Badge
-                if badge_txt:
-                    h += f'<div style="font-size:7px;font-weight:700;padding:2px 6px;background:{badge_col}15;color:{badge_col};border-radius:3px;border:1px solid {badge_col}35;white-space:nowrap;flex-shrink:0;">{badge_txt}</div>'
+                h += f'<div style="display:flex;padding:6px 10px;align-items:center;gap:4px;background:{row_bg};border-top:1px solid #f1f5f9;">'
+                h += f'<span style="width:22px;font-size:10px;font-weight:700;color:{c};">{i+1}</span>'
+                h += f'<span style="width:22px;font-size:13px;">{p["icon"]}</span>'
+                h += f'<div style="flex:1;"><span style="font-size:11px;font-weight:600;color:#1e293b;">{p["label"]}</span>'
+                h += f' <span style="font-size:8px;color:{"#d97706" if p["stars"]>=2 else "#94a3b8"};">{stars_str}</span></div>'
+                h += f'<div style="width:80px;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;">'
+                h += f'<div style="width:{max(8,sc)}%;height:100%;background:linear-gradient(90deg,{c}88,{c});border-radius:3px;"></div></div>'
+                h += f'<span style="width:28px;text-align:right;font-size:12px;font-weight:800;color:{c};">{sc:.0f}</span>'
+                if bt:
+                    h += f'<span style="width:90px;font-size:7px;font-weight:700;padding:2px 5px;background:{bc}12;color:{bc};border-radius:3px;border:1px solid {bc}30;text-align:center;">{bt}</span>'
+                else:
+                    h += '<span style="width:90px;"></span>'
                 h += '</div>'
             
-            # Rest collapsed
-            _rest = _prio[5:]
-            if _rest:
-                _rest_pills = []
-                for p in _rest:
-                    _rc, _, _ = _prio_color(p['score'])
-                    _rest_pills.append(f'<span style="font-size:9px;color:{_rc};font-weight:600;">{p["icon"]}{p["score"]:.0f}</span>')
-                h += f'<div style="margin-top:4px;font-size:9px;color:#94a3b8;display:flex;gap:8px;align-items:center;padding-left:4px;">+ {" ".join(_rest_pills)}</div>'
-            
-            h += '<div style="margin-top:6px;font-size:9px;color:#94a3b8;text-align:center;">★★★ krytyczne · ★★☆ ważne · ★☆☆ pomocnicze — ranking wg deficyt × waga sportowa</div>'
             h += '</div>'
+            
+            # Footer legend
+            h += '''<div style="margin-top:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:9px;color:#64748b;line-height:1.5;">
+  <b>\u2191</b> Na g\u00f3rze = najwi\u0119kszy potencja\u0142 poprawy dla Twojego sportu \u00a0\u00b7\u00a0 <b>\u2193</b> Na dole = Twoja najmocniejsza strona<br>
+  <span style="color:#94a3b8;">\u2605\u2605\u2605 krytyczne \u00b7 \u2605\u2605\u2606 wa\u017cne \u00b7 \u2605\u2606\u2606 pomocnicze \u2014 waga kategorii dla Twojego sportu</span>
+</div>'''
         if _limiter and _limiter.get('limiter_text'):
             _lim_key_map = {
                 'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
