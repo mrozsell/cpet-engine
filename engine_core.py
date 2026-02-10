@@ -4357,6 +4357,7 @@ class Engine_E06_Gain_v2:
         # Primary RE = value at highest-speed threshold (VT2 preferred)
         if re_best is not None:
             result['running_economy_mlkgkm'] = round(re_best, 1)
+            result['re_measurement_speed_kmh'] = round(re_best_speed, 1)
             if re_best > 300: result['flags'].append('RE_POSSIBLY_WRONG_VO2_UNITS')
             if re_best_speed >= 8:
                 if re_best < 195: result['re_classification'] = 'ELITE'
@@ -11336,6 +11337,7 @@ class CPET_Orchestrator:
             "gain_unit": e06.get("gain_unit"),
             "gain_modality": e06.get("modality"),
             "running_economy_mlkgkm": self._num(e06.get("running_economy_mlkgkm")),
+            "re_measurement_speed_kmh": self._num(e06.get("re_measurement_speed_kmh")),
             "re_classification": e06.get("re_classification"),
             "delta_efficiency_pct": self._num(e06.get("delta_efficiency_pct")),
             "gain_at_vt1": self._num(e06.get("gain_at_vt1")),
@@ -11345,6 +11347,7 @@ class CPET_Orchestrator:
             "eff_at_vt1": self._num(e06.get("eff_at_vt1")),
             "eff_at_vt2": self._num(e06.get("eff_at_vt2")),
             "rec_hrr_60s_bpm": self._num(self._pick(e08, ["hrr_1min", "hrr1", "hrr_60", "HRR_60s_bpm"])),
+            "rec_recovery_mode": e08.get("recovery_mode") if e08 else None,
             "rec_hrr_180s_bpm": self._num(self._pick(e08, ["hrr_3min", "hrr3", "hrr_180", "HRR_180s_bpm"])),
 
             # OUES

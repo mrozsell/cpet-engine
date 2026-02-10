@@ -1063,7 +1063,10 @@ def compute_profile_scores(ct):
     
     # ── 2. VT2 THRESHOLD ──
     _vt2p = _sf(vt2_pct, 75)
-    _vt2_sc = max(0, min(100, (_vt2p - 60) / 35 * 100))
+    # Sigmoid scoring: plateau in 75-85% range (physiological sweet spot),
+    # steep drop below 70%, gentle gain above 85%
+    import math
+    _vt2_sc = max(0, min(100, 100 / (1 + math.exp(-0.18 * (_vt2p - 74)))))
     # Sport-specific VT2 expectation for athletes
     _vt2_sport_thr = {'run':80,'bike':78,'triathlon':80,'rowing':78,'crossfit':72,'hyrox':75,'swimming':76,'xc_ski':84,'soccer':78,'mma':72}.get(modality, 80)
     if _is_athlete and _vt2p < _vt2_sport_thr:
@@ -1133,12 +1136,18 @@ def compute_profile_scores(ct):
     
     # RE-based scoring when test is on treadmill (lower RE = better economy)
     if _use_re:
-        if _re_v < 175: _re_sc = 95
-        elif _re_v < 185: _re_sc = 80 + (185 - _re_v) / 10 * 15
-        elif _re_v < 200: _re_sc = 60 + (200 - _re_v) / 15 * 20
-        elif _re_v < 215: _re_sc = 40 + (215 - _re_v) / 15 * 20
-        elif _re_v < 235: _re_sc = 20 + (235 - _re_v) / 20 * 20
-        else: _re_sc = max(5, 20 - (_re_v - 235) / 20 * 15)
+        # Speed-adjusted RE thresholds (literature: RE improves with speed due to
+        # walk-run transition costs being amortized; RE at 10 km/h is naturally worse
+        # than at 14+ km/h). Adjust norms: +5 ml/kg/km for each km/h below 12.
+        _re_speed = _sf(g('re_measurement_speed_kmh'), 12)
+        _speed_adj = max(0, (12 - _re_speed) * 5) if _re_speed < 12 else 0
+        _re_adj = _re_v - _speed_adj  # adjusted RE (as if measured at 12+ km/h)
+        if _re_adj < 175: _re_sc = 95
+        elif _re_adj < 185: _re_sc = 80 + (185 - _re_adj) / 10 * 15
+        elif _re_adj < 200: _re_sc = 60 + (200 - _re_adj) / 15 * 20
+        elif _re_adj < 215: _re_sc = 40 + (215 - _re_adj) / 15 * 20
+        elif _re_adj < 235: _re_sc = 20 + (235 - _re_adj) / 20 * 20
+        else: _re_sc = max(5, 20 - (_re_adj - 235) / 20 * 15)
         # Blend with GAIN_z when available
         # For non-athletes: GAIN_z is confounded with fitness level (low VO₂ → low gain)
         # so weight RE more heavily to avoid misleading economy limiter
@@ -1238,13 +1247,20 @@ def compute_profile_scores(ct):
     
     # ── 7. RECOVERY ──
     _hrr_v = _sf(hrr1, 25)
-    if _hrr_v >= 50: _hrr_sc = 95
-    elif _hrr_v >= 40: _hrr_sc = 85 + (_hrr_v - 40) / 10 * 10
-    elif _hrr_v >= 30: _hrr_sc = 70 + (_hrr_v - 30) / 10 * 15
-    elif _hrr_v >= 22: _hrr_sc = 55 + (_hrr_v - 22) / 8 * 15
-    elif _hrr_v >= 15: _hrr_sc = 38 + (_hrr_v - 15) / 7 * 17
-    elif _hrr_v >= 8: _hrr_sc = 15 + (_hrr_v - 8) / 7 * 23
-    else: _hrr_sc = max(5, _hrr_v / 8 * 15)
+    _rec_mode = g('rec_recovery_mode', 'auto')
+    # Active recovery (cooldown walking) typically yields HRR 5-10 bpm LOWER
+    # than passive (sudden stop). Adjust HRR upward for active recovery protocol.
+    if _rec_mode == 'active' and _hrr_v < 40:
+        _hrr_v_adj = _hrr_v + 8  # compensate for active cooldown
+    else:
+        _hrr_v_adj = _hrr_v
+    if _hrr_v_adj >= 50: _hrr_sc = 95
+    elif _hrr_v_adj >= 40: _hrr_sc = 85 + (_hrr_v_adj - 40) / 10 * 10
+    elif _hrr_v_adj >= 30: _hrr_sc = 70 + (_hrr_v_adj - 30) / 10 * 15
+    elif _hrr_v_adj >= 22: _hrr_sc = 55 + (_hrr_v_adj - 22) / 8 * 15
+    elif _hrr_v_adj >= 15: _hrr_sc = 38 + (_hrr_v_adj - 15) / 7 * 17
+    elif _hrr_v_adj >= 8: _hrr_sc = 15 + (_hrr_v_adj - 8) / 7 * 23
+    else: _hrr_sc = max(5, _hrr_v_adj / 8 * 15)
     _hrr_sc = max(0, min(100, _hrr_sc))
     # Athletes should have better recovery — graduated penalty
     # HRR depends on protocol (active/passive), position, HR strap lag
@@ -1272,18 +1288,26 @@ def compute_profile_scores(ct):
     }
     
     # ── 8. SUBSTRATE / FAT OXIDATION ──
-    _fat_v = _sf(fatmax, 0)
+    _fat_v = _sf(fatmax, 0)  # g/min
     _fat_pct = _sf(fatmax_pct_vo2, 45)
     _cop_v = _sf(cop_pct_vo2, 60)
+    _bm = _sf(body_mass_kg, 75)
     _sub_sc = 50
     if _fat_v > 0:
-        if _fat_v >= 0.6 and _fat_pct >= 50: _sub_sc = 92
-        elif _fat_v >= 0.45 and _fat_pct >= 45: _sub_sc = 78
-        elif _fat_v >= 0.35 and _fat_pct >= 40: _sub_sc = 65
-        elif _fat_v >= 0.25: _sub_sc = 50
+        # Normalize FATmax to body mass (mg/kg/min) for fairer comparison
+        # Literature: Randell 2017 uses FFM, but BM is always available
+        # MFO norms (g/min): 0.61 M / 0.50 F athletes (Randell 2017)
+        # ~7-8 mg/kg/min is good for trained, ~5 recreational
+        _fat_norm = (_fat_v * 1000) / _bm  # mg/kg/min
+        if _fat_norm >= 8.0 and _fat_pct >= 48: _sub_sc = 92
+        elif _fat_norm >= 6.5 and _fat_pct >= 43: _sub_sc = 78
+        elif _fat_norm >= 5.0 and _fat_pct >= 38: _sub_sc = 65
+        elif _fat_norm >= 3.5: _sub_sc = 50
         else: _sub_sc = 30
-        if _cop_v < 40: _sub_sc *= 0.8
-        elif _cop_v < 50: _sub_sc *= 0.9
+        # Crossover penalty: <40% is common in sedentary (Lima-Silva 2010)
+        # Only penalize when very early (<35%) suggesting metabolic inflexibility
+        if _cop_v < 35: _sub_sc *= 0.8
+        elif _cop_v < 42: _sub_sc *= 0.9
     else:
         _sub_sc = None
     
