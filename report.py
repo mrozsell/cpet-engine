@@ -1003,7 +1003,8 @@ def compute_profile_scores(ct):
     vent_class = e03.get('ventilatory_class', '')
     
     gain_z = g('GAIN_z') or e06.get('gain_z_score')
-    re_mlkgkm = g('RE_mlkgkm')
+    re_mlkgkm = g('RE_mlkgkm') or e06.get('re_at_vt2')
+    re_meas_speed = g('re_measurement_speed_kmh') or e06.get('re_measurement_speed_kmh') or e06.get('load_at_vt2')
     
     o2p_pct = e05.get('pct_predicted_friend') or g('O2pulse_pct_predicted')
     o2p_trajectory = g('O2pulse_trajectory')
@@ -1147,10 +1148,17 @@ def compute_profile_scores(ct):
     
     # RE-based scoring when test is on treadmill (lower RE = better economy)
     if _use_re:
+        # If RE measured at very low speed (<8 km/h), it's walk-to-run transition
+        # and RE is unreliable (engine flags RE_LOW_SPEED_UNRELIABLE)
+        _re_speed = _sf(re_meas_speed, 12)
+        if _re_speed < 8:
+            _use_re = False  # fall through to GAIN-only or neutral
+    
+    if _use_re:
         # Speed-adjusted RE thresholds (literature: RE improves with speed due to
         # walk-run transition costs being amortized; RE at 10 km/h is naturally worse
         # than at 14+ km/h). Adjust norms: +5 ml/kg/km for each km/h below 12.
-        _re_speed = _sf(g('re_measurement_speed_kmh'), 12)
+        _re_speed = _sf(re_meas_speed, 12)
         _speed_adj = max(0, (12 - _re_speed) * 5) if _re_speed < 12 else 0
         _re_adj = _re_v - _speed_adj  # adjusted RE (as if measured at 12+ km/h)
         if _re_adj < 175: _re_sc = 95
@@ -1216,7 +1224,8 @@ def compute_profile_scores(ct):
     }
     _econ_tip = _econ_tip_map.get(modality, 'Trening techniczny + siła specjalna')
     if _e06_no_data:
-        _econ_lim = f'Brak danych prędkości/mocy w pliku CPET — ekonomia ruchu nie mogła być obiektywnie oceniona. Wynik neutralny (50/100). Aby uzyskać pełną analizę, wykonaj test z pomiarem prędkości lub mocy.'
+        _econ_sc = None  # No speed/power data → exclude from scoring (not neutral 50)
+        _econ_lim = f'Brak danych prędkości/mocy w pliku CPET — ekonomia ruchu nie mogła być obiektywnie oceniona. Aby uzyskać pełną analizę, wykonaj test z pomiarem prędkości lub mocy.'
         _econ_sup = _econ_lim
         _econ_tip = 'Powtórz test z pomiarem prędkości/mocy'
     _cat['economy'] = {
@@ -1322,7 +1331,7 @@ def compute_profile_scores(ct):
     _fat_v = _sf(fatmax, 0)  # g/min
     _fat_pct = _sf(fatmax_pct_vo2, 45)
     _cop_v = _sf(cop_pct_vo2, 60)
-    _bm = _sf(body_mass_kg, 75)
+    _bm = _sf(g('body_mass_kg'), 75)
     _sub_sc = 50
     if _fat_v > 0:
         # Normalize FATmax to body mass (mg/kg/min) for fairer comparison
@@ -1446,32 +1455,89 @@ def compute_profile_scores(ct):
     # ═══════════════════════════════════════════════════════
     _valid = {k: v for k, v in _cat.items() if v.get('score') is not None}
     
-    _limiter_key = min(_valid, key=lambda k: _valid[k]['score']) if _valid else None
+    # ── Sport demand profiles (literature-based priority multipliers) ──
+    # Higher = more important for that sport's performance.
+    # Joyner & Coyle 2008: VO2max+VT2+RE = "big 3" for running
+    # Lucía 2001: VT2 = key differentiator in cycling
+    # San Millán 2018: substrate critical for ultra-endurance
+    # Laursen 2002: sport-specific training demands
+    _sport_demands = {
+        'run':       {'vo2max':1.0, 'vt2':0.9, 'economy':0.85, 'substrate':0.6, 'vt1':0.5, 'recovery':0.4, 'ventilation':0.3, 'cardiac':0.5, 'breathing':0.1},
+        'bike':      {'vt2':1.0, 'economy':0.9, 'vo2max':0.8, 'cardiac':0.7, 'substrate':0.5, 'recovery':0.4, 'vt1':0.4, 'ventilation':0.3, 'breathing':0.1},
+        'triathlon':  {'economy':1.0, 'vt2':0.9, 'vo2max':0.8, 'substrate':0.7, 'recovery':0.5, 'cardiac':0.5, 'vt1':0.4, 'ventilation':0.3, 'breathing':0.1},
+        'hyrox':     {'vt2':1.0, 'recovery':0.9, 'vo2max':0.8, 'economy':0.6, 'substrate':0.5, 'vt1':0.4, 'cardiac':0.5, 'ventilation':0.3, 'breathing':0.1},
+        'crossfit':  {'vt2':1.0, 'recovery':0.9, 'vo2max':0.8, 'ventilation':0.5, 'economy':0.4, 'cardiac':0.5, 'vt1':0.3, 'substrate':0.2, 'breathing':0.1},
+        'mma':       {'vt2':1.0, 'recovery':0.9, 'vo2max':0.8, 'ventilation':0.5, 'economy':0.4, 'cardiac':0.5, 'vt1':0.3, 'substrate':0.2, 'breathing':0.1},
+        'xc_ski':    {'vo2max':1.0, 'vt2':0.9, 'economy':0.7, 'cardiac':0.7, 'substrate':0.6, 'vt1':0.5, 'recovery':0.4, 'ventilation':0.3, 'breathing':0.1},
+        'swimming':  {'economy':1.0, 'vo2max':0.8, 'vt2':0.7, 'ventilation':0.6, 'cardiac':0.5, 'vt1':0.4, 'recovery':0.4, 'substrate':0.3, 'breathing':0.1},
+        'rowing':    {'economy':1.0, 'vt2':0.9, 'vo2max':0.8, 'cardiac':0.7, 'substrate':0.5, 'recovery':0.4, 'vt1':0.4, 'ventilation':0.3, 'breathing':0.1},
+        'soccer':    {'vt2':1.0, 'recovery':0.9, 'vo2max':0.7, 'vt1':0.6, 'economy':0.4, 'cardiac':0.5, 'ventilation':0.3, 'substrate':0.2, 'breathing':0.1},
+    }
+    _demands = _sport_demands.get(modality, {'vo2max':1.0, 'vt2':0.8, 'vt1':0.5, 'economy':0.5, 'ventilation':0.3, 'cardiac':0.5, 'recovery':0.5, 'substrate':0.3, 'breathing':0.1})
     
-    # Priority override: for RECREATIONAL/UNTRAINED, economy limiter is misleading
-    # because bad GAIN_z reflects low fitness, not bad technique.
-    # Redirect to VO₂max (LOW_BASE) which is the real root cause.
+    # ── Detect "no real limiter" mode ──
+    # Threshold 75: below = genuinely actionable weakness, above = marginal gains only
+    _min_score = min((v.get('score', 100) for v in _valid.values()), default=100)
+    _no_real_limiter = _min_score >= 75
+    
+    # ── Sport-weighted limiter selection ──
+    # For each category: priority = (100 - score) × sport_demand
+    # This means: a small deficit in a CRITICAL sport category outweighs
+    # a larger deficit in an irrelevant one.
+    # Exclude 'deconditioning' from sport-demand weighting (it's a meta-category)
+    _limiter_candidates = {}
+    for k, v in _valid.items():
+        sc = v.get('score', 100)
+        demand = _demands.get(k, 0.3)
+        deficit = max(0, 100 - sc)
+        # Severity floor: when score is very low (<40), the deficit is so large
+        # that it should dominate regardless of sport demand.
+        # Ensure minimum effective demand of 0.5 for severe deficits.
+        if sc < 40:
+            demand = max(demand, 0.5)
+        _limiter_candidates[k] = deficit * demand
+    
+    _limiter_key = max(_limiter_candidates, key=_limiter_candidates.get) if _limiter_candidates else None
+    
+    # ── Safety redirects (measurement reliability) ──
+    
+    # Economy redirect for RECREATIONAL/UNTRAINED: GAIN confounded with fitness
     if _limiter_key == 'economy' and sport_class_raw in ('UNTRAINED', 'RECREATIONAL'):
         _vo2_sc = _valid.get('vo2max', {}).get('score', 100)
         _vt1_sc = _valid.get('vt1', {}).get('score', 100)
-        # If VO₂max or VT1 are also below 70, they should be the real limiter
         if _vo2_sc < 70:
             _limiter_key = 'vo2max'
         elif _vt1_sc < 65:
             _limiter_key = 'vt1'
     
-    # FATmax limiter override: if protocol is not optimal for FATmax (ramp/<3min steps),
-    # FATmax should not be the primary limiter (Chrzanowski-Smith 2018: ICC 0.58 for ramp).
-    # Redirect to next-lowest category that has better measurement reliability.
+    # FATmax redirect for unreliable protocol (ramp / <3min steps)
     if _limiter_key == 'substrate' and _fatmax_confidence < 0.8:
-        _non_sub = {k: v for k, v in _valid.items() if k != 'substrate' and v.get('score') is not None}
+        _non_sub = {k: v for k, v in _limiter_candidates.items() if k != 'substrate'}
         if _non_sub:
-            _limiter_key = min(_non_sub, key=lambda k: _non_sub[k]['score'])
+            _limiter_key = max(_non_sub, key=_non_sub.get)
+    
+    # Breathing redirect: low-weight auxiliary, score ≥65 = normal
+    if _limiter_key == 'breathing' and _valid.get('breathing', {}).get('score', 0) >= 65:
+        _non_bp = {k: v for k, v in _limiter_candidates.items() if k != 'breathing'}
+        if _non_bp:
+            _limiter_key = max(_non_bp, key=_non_bp.get)
+    
     _super_candidates = {k: v for k, v in _valid.items() if k != 'deconditioning' and v.get('super_text')}
     _super_key = max(_super_candidates, key=lambda k: _super_candidates[k]['score']) if _super_candidates else None
     
     _limiter = _valid.get(_limiter_key, {}) if _limiter_key else {}
     _superpower = _valid.get(_super_key, {}) if _super_key else {}
+    
+    # ── No-real-limiter: override limiter text to "marginal" tone ──
+    if _no_real_limiter and _limiter_key:
+        _lim_label = _limiter.get('label', _limiter_key)
+        _lim_sc = _limiter.get('score', 0)
+        _limiter['limiter_text'] = (
+            f'{_lim_label} ({_lim_sc:.0f}/100) to Twoje relatywnie najsłabsze ogniwo, '
+            f'ale przy wszystkich kategoriach ≥75 nie masz wyraźnego limitera. '
+            f'Profil fizjologiczny jest zbalansowany. Marginalną poprawę możesz uzyskać '
+            f'celując w tę kategorię, ale priorytetem powinna być kontynuacja obecnego treningu.'
+        )
     
     # ═══════════════════════════════════════════════════════
     # OVERALL SCORE (weighted composite)
@@ -1505,8 +1571,7 @@ def compute_profile_scores(ct):
                 _overall += _valid[k]['score'] * w
                 _w_sum += w
         if _w_sum > 0:
-            _overall /= _w_sum
-            _overall *= sum(_weights.values())
+            _overall /= _w_sum  # normalize to 0-100 based on present categories only
     except:
         pass
     
@@ -1681,6 +1746,9 @@ def compute_profile_scores(ct):
         'super_key': _super_key,
         'limiter': _limiter,
         'superpower': _superpower,
+        'no_real_limiter': _no_real_limiter,
+        'limiter_type': 'marginal' if _no_real_limiter else 'real',
+        'sport_demands': _demands,
         'pctile_val': pctile_val,
         'aerobic_base': _aerobic_base,
         'sport_class': sport_class_raw,
@@ -3698,10 +3766,16 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 _gc_pro_session = _limiter_pro.get('tip', '')
             
             # Display: LIMITER + SUPER + GameChanger
+            _nrl_pro = _profile_pro.get('no_real_limiter', False)
             if _limiter_pro.get('label'):
-                h += f'<div style="padding:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:8px;border-left:3px solid #ef4444;margin-bottom:6px;font-size:12px;">'
-                h += f'<b>{_limiter_pro.get("icon","⚠️")} LIMITER: {_limiter_pro["label"]}</b><br>'
-                h += f'<span style="color:#475569;">{_limiter_pro.get("limiter_text","")}</span></div>'
+                if _nrl_pro:
+                    h += f'<div style="padding:10px;background:linear-gradient(135deg,#f0fdfa,#ccfbf1);border-radius:8px;border-left:3px solid #0d9488;margin-bottom:6px;font-size:12px;">'
+                    h += f'<b>✅ PROFIL ZBALANSOWANY</b><br>'
+                    h += f'<span style="color:#475569;">{_limiter_pro.get("limiter_text","")}</span></div>'
+                else:
+                    h += f'<div style="padding:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:8px;border-left:3px solid #ef4444;margin-bottom:6px;font-size:12px;">'
+                    h += f'<b>{_limiter_pro.get("icon","⚠️")} LIMITER: {_limiter_pro["label"]}</b><br>'
+                    h += f'<span style="color:#475569;">{_limiter_pro.get("limiter_text","")}</span></div>'
             if _super_pro.get('label'):
                 h += f'<div style="padding:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:8px;border-left:3px solid #16a34a;margin-bottom:6px;font-size:12px;">'
                 h += f'<b>{_super_pro.get("icon","💪")} SUPERMOC: {_super_pro["label"]}</b><br>'
@@ -4292,23 +4366,65 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 </div>'''
 
         # ─── 2. PROFIL WYDOLNOŚCI + LIMITER / SUPERMOC ───
-        _g_vo2 = min(100, _overall)
-        _g_vt2 = _cat.get('vt2', {}).get('score', 0) or _vt2_score
-        _g_vent = _cat.get('ventilation', {}).get('score', 0) or _vent_score
-        _g_econ = _cat.get('economy', {}).get('score', 0) or _econ_score
-        _g_hrr = _cat.get('recovery', {}).get('score', 0) or _hrr_score
+        _sport_demands = _profile.get('sport_demands', {})
+        
+        # Variant 4: build gauge list sorted by sport demand (highest first)
+        # Overall gauge always first, then sport-prioritized categories
+        _gauge_defs = [
+            ('vo2max',  'VO\u2082max',    'Wydolno\u015b\u0107', _cat.get('vo2max',{}).get('score',0) or min(100, _overall)),
+            ('vt2',     'Pr\u00f3g',      'VT2',        _cat.get('vt2',{}).get('score',0) or _vt2_score),
+            ('vt1',     'Pr\u00f3g',      'VT1',        _cat.get('vt1',{}).get('score',0)),
+            ('economy', 'Ekonomia',  'Ruch',       _cat.get('economy',{}).get('score',0) or _econ_score),
+            ('ventilation','Oddychanie','Wentylacja',_cat.get('ventilation',{}).get('score',0) or _vent_score),
+            ('cardiac', 'Serce',     'O\u2082 Pulse', _cat.get('cardiac',{}).get('score',0)),
+            ('recovery','Regeneracja','HRR',       _cat.get('recovery',{}).get('score',0) or _hrr_score),
+            ('substrate','FATmax',   'Substrat',   _cat.get('substrate',{}).get('score',0)),
+            ('breathing','Oddech',   'Wzorzec',    _cat.get('breathing',{}).get('score',0)),
+        ]
+        # Filter: only categories with score > 0 and with sport demand > 0 (or top 5)
+        _gauge_scored = [(k,lab,sub,sc) for k,lab,sub,sc in _gauge_defs if sc and sc > 0]
+        # Sort by demand descending, take top 5-6
+        _gauge_scored.sort(key=lambda x: -_sport_demands.get(x[0], 0))
+        _gauge_top = _gauge_scored[:6]  # max 6 gauges
+        # Ensure at least 4 gauges (pad with remaining if needed)
+        if len(_gauge_top) < 4:
+            _gauge_top = _gauge_scored[:4]
+        
+        # Sport label for header
+        _sp_name = (ct.get('sport','') or ct.get('_sport','') or ct.get('modality','')).upper()
+        _sp_icon_map = {'RUN':'\U0001f3c3','HYROX':'\U0001f3cb\ufe0f','BIKE':'\U0001f6b4','TRIATHLON':'\U0001f3ca','CROSSFIT':'\U0001f4aa','MMA':'\U0001f94a','SOCCER':'\u26bd','SWIMMING':'\U0001f3ca','ROWING':'\U0001f6a3','XC_SKI':'\u26f7\ufe0f'}
+        _sp_icon = _sp_icon_map.get(_sp_name, '\U0001f3af')
+        _sp_lbl_map = {'RUN':'biegu','HYROX':'HYROX','BIKE':'kolarstwa','TRIATHLON':'triathlonu','CROSSFIT':'CrossFit','MMA':'MMA','SOCCER':'pi\u0142ki no\u017cnej','SWIMMING':'p\u0142ywania','ROWING':'wio\u015blarstwa','XC_SKI':'narciarstwa biegowego'}
+        _sp_lbl = _sp_lbl_map.get(_sp_name, '')
+        _sp_subtitle = f' <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:8px;">\u2b05 od najwa\u017cniejszych dla {_sp_icon} {_sp_lbl}</span>' if _sp_lbl and _sport_demands else ''
+        
+        # Build gauge HTML
+        _gauges_html = ''
+        for _gk, _glab, _gsub, _gsc in _gauge_top:
+            _gsc = min(100, max(0, _gsc or 0))
+            _gdem = _sport_demands.get(_gk, 0)
+            # Demand tier — no ring, just badge + sort + opacity
+            if _gdem >= 0.8:
+                _badge = '<div style="margin-top:4px;"><span style="font-size:8px;font-weight:700;padding:2px 8px;background:#fef3c7;color:#92400e;border-radius:4px;border-bottom:2px solid #f59e0b;">KLUCZOWE</span></div>'
+                _wrap_opacity = ''
+            elif _gdem >= 0.5:
+                _badge = '<div style="margin-top:4px;"><span style="font-size:8px;font-weight:600;padding:2px 8px;background:#e0f2fe;color:#0369a1;border-radius:4px;">WA\u017bNE</span></div>'
+                _wrap_opacity = ''
+            else:
+                _badge = '<div style="margin-top:4px;"><span style="font-size:8px;font-weight:600;padding:2px 8px;background:#f1f5f9;color:#94a3b8;border-radius:4px;">POMOCNICZE</span></div>'
+                _wrap_opacity = 'opacity:0.55;'
+            _gauges_html += f'<div style="text-align:center;{_wrap_opacity}">{gauge_svg(_gsc, _glab, subtitle=_gsub)}{_badge}</div>\n    '
         
         h += f'''<div class="card">
-  <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci</div>
-  <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:8px;text-align:center;">
-    {gauge_svg(min(100, _g_vo2), 'Profil', subtitle='Og\u00f3lny')}
-    {gauge_svg(min(100, _g_vt2), 'Pr\u00f3g', subtitle='VT2')}
-    {gauge_svg(min(100, _g_vent), 'Oddychanie', subtitle='Wentylacja')}
-    {gauge_svg(min(100, _g_econ), 'Ekonomia', subtitle='Ruch')}
-    {gauge_svg(min(100, _g_hrr), 'Regeneracja', subtitle='HRR')}
+  <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci{_sp_subtitle}</div>
+  <div style="display:flex;justify-content:space-around;flex-wrap:wrap;gap:12px;text-align:center;">
+    {_gauges_html}
   </div>
-  <div style="text-align:center;margin-top:10px;font-size:11px;color:#94a3b8;">
-    Ka\u017cdy wska\u017anik w skali 0\u2013100. Powy\u017cej 70 = bardzo dobrze. Powy\u017cej 85 = poziom sportowy.
+  <div style="text-align:center;margin-top:10px;font-size:10px;color:#94a3b8;">
+    <span style="font-size:8px;font-weight:700;padding:1px 5px;background:#fef3c7;color:#92400e;border-radius:3px;border-bottom:2px solid #f59e0b;">KLUCZOWE</span> \u00a0
+    <span style="font-size:8px;font-weight:600;padding:1px 5px;background:#e0f2fe;color:#0369a1;border-radius:3px;">WA\u017bNE</span> \u00a0
+    <span style="font-size:8px;font-weight:600;padding:1px 5px;background:#f1f5f9;color:#94a3b8;border-radius:3px;">POMOCNICZE</span>
+    \u00a0\u00a0\u00b7\u00a0\u00a0 Skala 0\u2013100. Powy\u017cej 70 = bardzo dobrze.
   </div>'''
         
         # ── SUPERMOC + LIMITER cards ──
@@ -4322,7 +4438,15 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 </div>'''
             
             if _limiter and _limiter.get('limiter_text'):
-                h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:12px;border-left:4px solid #ef4444;">
+                _nrl = _profile.get('no_real_limiter', False)
+                if _nrl:
+                    # Green/teal styling for "marginal improvement area" — not a real weakness
+                    h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#f0fdfa,#ccfbf1);border-radius:12px;border-left:4px solid #0d9488;">
+  <div style="font-size:13px;font-weight:700;color:#0d9488;margin-bottom:6px;">✅ PROFIL ZBALANSOWANY</div>
+  <div style="font-size:12px;color:#334155;line-height:1.6;">{_limiter.get('limiter_text','')}</div>
+</div>'''
+                else:
+                    h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:12px;border-left:4px solid #ef4444;">
   <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:6px;">{_limiter.get('icon','\u26a0\ufe0f')} LIMITER: {_limiter.get('label','')}</div>
   <div style="font-size:12px;color:#334155;line-height:1.6;">{_limiter.get('limiter_text','')}</div>
   <div style="margin-top:6px;font-size:11px;color:#64748b;font-style:italic;">\U0001f4a1 {_limiter.get('tip','')}</div>
@@ -4330,7 +4454,43 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             
             h += '</div>'
         
-        # ── GAME CHANGER — top training recommendation from E20 ──
+        # ── OPTION B: Sport-demand priority bar ──
+        _sport_demands = _profile.get('sport_demands', {})
+        if _sport_demands and _cat:
+            _sport_name = ct.get('sport', ct.get('_sport', ct.get('modality', ''))).upper()
+            _sport_icon_map = {'RUN':'🏃','HYROX':'🏋️','BIKE':'🚴','TRIATHLON':'🏊','CROSSFIT':'💪','MMA':'🥊','SOCCER':'⚽','SWIMMING':'🏊','ROWING':'🚣','XC_SKI':'⛷️'}
+            _sp_icon = _sport_icon_map.get(_sport_name, '🎯')
+            _sport_label_map = {'RUN':'biegu','HYROX':'HYROX','BIKE':'kolarstwa','TRIATHLON':'triathlonu','CROSSFIT':'CrossFit','MMA':'MMA','SOCCER':'piłki nożnej','SWIMMING':'pływania','ROWING':'wioślarstwa','XC_SKI':'narciarstwa biegowego'}
+            _sp_label = _sport_label_map.get(_sport_name, _sport_name)
+            
+            # Build priority pills sorted by demand desc
+            _pills = []
+            for _dk, _dv in sorted(_sport_demands.items(), key=lambda x: -x[1]):
+                _cd = _cat.get(_dk, {})
+                _csc = _cd.get('score')
+                if _csc is None:
+                    continue
+                _stars = '★★★' if _dv >= 0.8 else ('★★☆' if _dv >= 0.5 else '★☆☆')
+                _star_color = '#d97706' if _dv >= 0.5 else '#94a3b8'
+                if _csc >= 75:
+                    _pill_bg = '#f0fdf4'; _pill_border = '#bbf7d0'; _sc_color = '#16a34a'
+                elif _csc >= 50:
+                    _pill_bg = '#fffbeb'; _pill_border = '#fde68a'; _sc_color = '#d97706'
+                else:
+                    _pill_bg = '#fef2f2'; _pill_border = '#fecaca'; _sc_color = '#ef4444'
+                _pill_icon = _cd.get('icon', '●')
+                _pill_name = _cd.get('label', _dk)
+                # Shorten labels
+                _short = {'Wydolność tlenowa':'VO₂max','Próg mleczanowy':'VT2','Próg tlenowy':'VT1','Ekonomia ruchu':'Ekonomia','Ekonomia biegu':'Ekonomia','Ekonomia biegu (test na bieżni)':'Ekonomia','Wentylacja':'Wentylacja','Serce':'Serce','Regeneracja':'Recovery','Substrat':'FATmax','Wzorzec oddechowy':'Oddychanie'}
+                _pill_short = _short.get(_pill_name, _pill_name[:10])
+                _pills.append(f'<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:{_pill_bg};border:1px solid {_pill_border};border-radius:6px;"><span style="font-size:10px;">{_pill_icon} {_pill_short}</span><span style="color:{_sc_color};font-size:11px;font-weight:700;">{_csc:.0f}</span><span style="font-size:9px;color:{_star_color};">{_stars}</span></div>')
+            
+            if _pills:
+                h += f'''<div style="margin-top:14px;padding:10px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
+  <div style="font-size:11px;font-weight:600;color:#475569;margin-bottom:8px;">{_sp_icon} Priorytety {_sp_label}</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">{"".join(_pills)}</div>
+  <div style="margin-top:6px;font-size:10px;color:#94a3b8;">★★★ krytyczne · ★★☆ ważne · ★☆☆ pomocnicze — dla Twojego sportu</div>
+</div>'''
         if _limiter and _limiter.get('limiter_text'):
             _lim_key_map = {
                 'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
