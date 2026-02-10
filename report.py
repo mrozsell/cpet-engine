@@ -1149,19 +1149,39 @@ def compute_profile_scores(ct):
         elif _re_adj < 235: _re_sc = 20 + (235 - _re_adj) / 20 * 20
         else: _re_sc = max(5, 20 - (_re_adj - 235) / 20 * 15)
         # Blend with GAIN_z when available
-        # For non-athletes: GAIN_z is confounded with fitness level (low VO₂ → low gain)
-        # so weight RE more heavily to avoid misleading economy limiter
+        # GAIN_z reliability depends on speed diversity between VT1 and VT2:
+        # If speed barely changed (protocol saturation), GAIN is unreliable
+        # Also: when RE is elite (<185), GAIN should have minimal impact
         _gz_sc = max(15, min(100, 50 + _gz * 22)) if _gz else None
         if _gz_sc is not None:
-            # GAIN_z weight: lower for RECREATIONAL/UNTRAINED (confounded with fitness)
+            # Speed diversity factor: GAIN is only meaningful when speed increased
+            _vt1_spd_e = _sf(vt1_speed, 0)
+            _vt2_spd_e = _sf(vt2_speed, 0)
+            if _vt1_spd_e > 4 and _vt2_spd_e > 4:
+                _spd_ratio = _vt2_spd_e / _vt1_spd_e
+                _diversity = min(1.0, max(0.0, (_spd_ratio - 1.0) / 0.20))
+            else:
+                _diversity = 0.5  # unknown speeds → moderate weight
+            # Base weight: lower for RECREATIONAL/UNTRAINED (confounded with fitness)
             _sport_trained = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
-            _gz_w = 0.40 if _sport_trained else 0.20
+            _base_gz_w = 0.40 if _sport_trained else 0.20
+            # Reduce by speed diversity (saturated protocol → low GAIN weight)
+            _gz_w = _base_gz_w * _diversity
+            # Elite RE cap: when RE is excellent, don't let GAIN drag it down
+            if _re_adj < 185:
+                _gz_w = min(_gz_w, 0.15)
             _econ_sc = (1 - _gz_w) * _re_sc + _gz_w * _gz_sc
         else:
             _econ_sc = _re_sc
         _re_ctx = ' (test na bieżni)' if modality != 'run' else ''
         _econ_label = f'Ekonomia biegu{_re_ctx}'
-        _econ_lim = f'Ekonomia biegu{_re_ctx} do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
+        # Limiter text should reflect ACTUAL RE quality, not blended score
+        if _re_v < 185:
+            _econ_lim = f'Ekonomia biegu{_re_ctx} na dobrym poziomie (RE: {_re_v:.0f} ml/kg/km — elitarna){f", z-score: {_gz:+.1f}" if _gz else ""}. Efektywność O₂/km wysoka, ale inne kategorie wymagają uwagi.'
+        elif _re_v < 200:
+            _econ_lim = f'Ekonomia biegu{_re_ctx} do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
+        else:
+            _econ_lim = f'Ekonomia biegu{_re_ctx} poniżej przeciętnej (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz dużo energii na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
         _econ_sup = f'Doskonała ekonomia biegu{_re_ctx} (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""} — Twój organizm zużywa mniej energii na danym tempie niż przeciętna osoba.'
     else:
         # GAIN_z-based for cycling or when RE unavailable
@@ -1393,10 +1413,15 @@ def compute_profile_scores(ct):
     
     _econ_mask = False
     _sport_trained = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
-    if _sport_trained and _gz and _gz < -0.8:
-        # Genuinely trained athlete with bad economy → real technique limiter
-        _cat['economy']['score'] *= 0.85
-        _econ_mask = True
+    _vt1_spd_m = _sf(vt1_speed, 0)
+    _vt2_spd_m = _sf(vt2_speed, 0)
+    _spd_div_ok = (_vt1_spd_m > 4 and _vt2_spd_m > 4 and _vt2_spd_m / _vt1_spd_m > 1.10)
+    if _sport_trained and _gz and _gz < -0.8 and _spd_div_ok:
+        # Genuinely trained athlete with reliable bad economy → real technique limiter
+        # Only apply when speed diversity confirms GAIN is meaningful
+        if not (_use_re and _re_v < 185):  # Don't mask when RE is elite
+            _cat['economy']['score'] *= 0.85
+            _econ_mask = True
     
     # ═══════════════════════════════════════════════════════
     # FIND LIMITER & SUPERPOWER
