@@ -1139,9 +1139,17 @@ def compute_profile_scores(ct):
         elif _re_v < 215: _re_sc = 40 + (215 - _re_v) / 15 * 20
         elif _re_v < 235: _re_sc = 20 + (235 - _re_v) / 20 * 20
         else: _re_sc = max(5, 20 - (_re_v - 235) / 20 * 15)
-        # Blend with GAIN_z when available (RE 60% + GAIN_z 40%)
-        _gz_sc = max(0, min(100, 50 + _gz * 22)) if _gz else None
-        _econ_sc = (0.6 * _re_sc + 0.4 * _gz_sc) if _gz_sc is not None else _re_sc
+        # Blend with GAIN_z when available
+        # For non-athletes: GAIN_z is confounded with fitness level (low VO₂ → low gain)
+        # so weight RE more heavily to avoid misleading economy limiter
+        _gz_sc = max(15, min(100, 50 + _gz * 22)) if _gz else None
+        if _gz_sc is not None:
+            # GAIN_z weight: lower for RECREATIONAL/UNTRAINED (confounded with fitness)
+            _sport_trained = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
+            _gz_w = 0.40 if _sport_trained else 0.20
+            _econ_sc = (1 - _gz_w) * _re_sc + _gz_w * _gz_sc
+        else:
+            _econ_sc = _re_sc
         _re_ctx = ' (test na bieżni)' if modality != 'run' else ''
         _econ_label = f'Ekonomia biegu{_re_ctx}'
         _econ_lim = f'Ekonomia biegu{_re_ctx} do poprawy (RE: {_re_v:.0f} ml/kg/km){f", z-score: {_gz:+.1f}" if _gz else ""}. Zużywasz więcej energii niż powinieneś na danym tempie. Plyometria, trening siłowy i ćwiczenia techniczne poprawią efektywność.'
@@ -1238,16 +1246,27 @@ def compute_profile_scores(ct):
     elif _hrr_v >= 8: _hrr_sc = 15 + (_hrr_v - 8) / 7 * 23
     else: _hrr_sc = max(5, _hrr_v / 8 * 15)
     _hrr_sc = max(0, min(100, _hrr_sc))
-    # Athletes should have better recovery — penalty if HRR below sport expectation
-    if _is_athlete and _hrr_v < 25:
-        _hrr_sc *= 0.85  # trained athlete with HRR<25 = underperforming
-    elif _is_athlete and _hrr_v < 20:
-        _hrr_sc *= 0.75  # serious concern for trained athlete
+    # Athletes should have better recovery — graduated penalty
+    # HRR depends on protocol (active/passive), position, HR strap lag
+    # so penalty is mild for borderline cases
+    if _is_athlete:
+        if _hrr_v < 15:
+            _hrr_sc *= 0.75   # serious concern
+        elif _hrr_v < 20:
+            _hrr_sc *= 0.85   # below expected for athlete
+        elif _hrr_v < 28:
+            _hrr_sc *= 0.93   # mild: borderline, protocol-dependent
+    if _hrr_v < 20:
+        _rec_lim = f'Regeneracja istotnie osłabiona (HRR₁: {_hrr_v:.0f} bpm/min). Tętno spada bardzo wolno po wysiłku. Zadbaj o sen, nawodnienie, trening Z1-Z2 i periodyzację. Rozważ konsultację.'
+    elif _hrr_v < 28:
+        _rec_lim = f'Regeneracja nieco poniżej normy sportowej (HRR₁: {_hrr_v:.0f} bpm/min). Może wynikać z protokołu testu, zmęczenia lub stylu życia. Zadbaj o sen, nawodnienie i periodyzację.'
+    else:
+        _rec_lim = f'Regeneracja w normie, ale najniższa z Twoich kategorii (HRR₁: {_hrr_v:.0f} bpm/min). Potencjał poprawy przez lepszą higienę snu i periodyzację.'
     _cat['recovery'] = {
         'score': _hrr_sc,
         'label': 'Regeneracja',
         'icon': '🔄',
-        'limiter_text': f'Regeneracja wymaga poprawy (HRR₁: {_hrr_v:.0f} bpm/min). Tętno spada wolno po wysiłku. Zadbaj o sen, nawodnienie, trening Z1-Z2 i periodyzację.',
+        'limiter_text': _rec_lim,
         'super_text': f'Błyskawiczna regeneracja (HRR₁: {_hrr_v:.0f} bpm/min) — Twój układ nerwowy i serce szybko wracają do normy po wysiłku.',
         'tip': 'Sen + nawodnienie + periodyzacja'
     }
@@ -1349,8 +1368,10 @@ def compute_profile_scores(ct):
         _cat['vt2']['super_text'] = f'Próg przy {_vt2p:.0f}% VO₂max — dobry stosunek, ale sufit (VO₂max) wymaga podniesienia.'
     
     _econ_mask = False
-    if pctile_val >= 70 and _gz < -0.8:
-        _cat['economy']['score'] *= 0.75
+    _sport_trained = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
+    if _sport_trained and _gz and _gz < -0.8:
+        # Genuinely trained athlete with bad economy → real technique limiter
+        _cat['economy']['score'] *= 0.85
         _econ_mask = True
     
     # ═══════════════════════════════════════════════════════
@@ -1359,6 +1380,18 @@ def compute_profile_scores(ct):
     _valid = {k: v for k, v in _cat.items() if v.get('score') is not None}
     
     _limiter_key = min(_valid, key=lambda k: _valid[k]['score']) if _valid else None
+    
+    # Priority override: for RECREATIONAL/UNTRAINED, economy limiter is misleading
+    # because bad GAIN_z reflects low fitness, not bad technique.
+    # Redirect to VO₂max (LOW_BASE) which is the real root cause.
+    if _limiter_key == 'economy' and sport_class_raw in ('UNTRAINED', 'RECREATIONAL'):
+        _vo2_sc = _valid.get('vo2max', {}).get('score', 100)
+        _vt1_sc = _valid.get('vt1', {}).get('score', 100)
+        # If VO₂max or VT1 are also below 70, they should be the real limiter
+        if _vo2_sc < 70:
+            _limiter_key = 'vo2max'
+        elif _vt1_sc < 65:
+            _limiter_key = 'vt1'
     _super_candidates = {k: v for k, v in _valid.items() if k != 'deconditioning' and v.get('super_text')}
     _super_key = max(_super_candidates, key=lambda k: _super_candidates[k]['score']) if _super_candidates else None
     
