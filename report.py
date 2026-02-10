@@ -1485,19 +1485,36 @@ def compute_profile_scores(ct):
     # This means: a small deficit in a CRITICAL sport category outweighs
     # a larger deficit in an irrelevant one.
     # Exclude 'deconditioning' from sport-demand weighting (it's a meta-category)
-    _limiter_candidates = {}
+    # ── Priority ranking (V2: replaces binary LIMITER/SUPERMOC) ──
+    # Sort ALL categories by (100-score)*demand → top = biggest training priority
+    # Limiter = priority #1 (with safety redirects applied after)
+    _priority_ranking = []
     for k, v in _valid.items():
-        sc = v.get('score', 100)
+        if k == 'deconditioning':
+            continue
+        sc = v.get('score')
+        if sc is None:
+            continue
         demand = _demands.get(k, 0.3)
-        deficit = max(0, 100 - sc)
-        # Severity floor: when score is very low (<40), the deficit is so large
-        # that it should dominate regardless of sport demand.
-        # Ensure minimum effective demand of 0.5 for severe deficits.
-        if sc < 40:
-            demand = max(demand, 0.5)
-        _limiter_candidates[k] = deficit * demand
+        deficit = max(0, 100 - sc) * demand
+        stars = 3 if demand >= 0.8 else (2 if demand >= 0.5 else 1)
+        _priority_ranking.append({
+            'key': k,
+            'label': v.get('label', k),
+            'icon': v.get('icon', '●'),
+            'score': sc,
+            'demand': demand,
+            'deficit': deficit,
+            'stars': stars,
+            'limiter_text': v.get('limiter_text', ''),
+            'super_text': v.get('super_text', ''),
+            'tip': v.get('tip', ''),
+        })
+    _priority_ranking.sort(key=lambda x: -x['deficit'])
     
-    _limiter_key = max(_limiter_candidates, key=_limiter_candidates.get) if _limiter_candidates else None
+    # ── Limiter = priority #1 from ranking (replaces old standalone logic) ──
+    if _priority_ranking:
+        _limiter_key = _priority_ranking[0]['key']
     
     # ── Safety redirects (measurement reliability) ──
     
@@ -1512,15 +1529,15 @@ def compute_profile_scores(ct):
     
     # FATmax redirect for unreliable protocol (ramp / <3min steps)
     if _limiter_key == 'substrate' and _fatmax_confidence < 0.8:
-        _non_sub = {k: v for k, v in _limiter_candidates.items() if k != 'substrate'}
+        _non_sub = [p for p in _priority_ranking if p['key'] != 'substrate']
         if _non_sub:
-            _limiter_key = max(_non_sub, key=_non_sub.get)
+            _limiter_key = _non_sub[0]['key']
     
     # Breathing redirect: low-weight auxiliary, score ≥65 = normal
     if _limiter_key == 'breathing' and _valid.get('breathing', {}).get('score', 0) >= 65:
-        _non_bp = {k: v for k, v in _limiter_candidates.items() if k != 'breathing'}
+        _non_bp = [p for p in _priority_ranking if p['key'] != 'breathing']
         if _non_bp:
-            _limiter_key = max(_non_bp, key=_non_bp.get)
+            _limiter_key = _non_bp[0]['key']
     
     _super_candidates = {k: v for k, v in _valid.items() if k != 'deconditioning' and v.get('super_text')}
     _super_key = max(_super_candidates, key=lambda k: _super_candidates[k]['score']) if _super_candidates else None
@@ -1529,14 +1546,13 @@ def compute_profile_scores(ct):
     _superpower = _valid.get(_super_key, {}) if _super_key else {}
     
     # ── No-real-limiter: override limiter text to "marginal" tone ──
-    if _no_real_limiter and _limiter_key:
+    if _no_real_limiter and _limiter_key and _limiter:
         _lim_label = _limiter.get('label', _limiter_key)
         _lim_sc = _limiter.get('score', 0)
         _limiter['limiter_text'] = (
             f'{_lim_label} ({_lim_sc:.0f}/100) to Twoje relatywnie najsłabsze ogniwo, '
             f'ale przy wszystkich kategoriach ≥75 nie masz wyraźnego limitera. '
-            f'Profil fizjologiczny jest zbalansowany. Marginalną poprawę możesz uzyskać '
-            f'celując w tę kategorię, ale priorytetem powinna być kontynuacja obecnego treningu.'
+            f'Profil fizjologiczny jest zbalansowany — kontynuuj obecny trening.'
         )
     
     # ═══════════════════════════════════════════════════════
@@ -1746,6 +1762,7 @@ def compute_profile_scores(ct):
         'super_key': _super_key,
         'limiter': _limiter,
         'superpower': _superpower,
+        'priority_ranking': _priority_ranking,
         'no_real_limiter': _no_real_limiter,
         'limiter_type': 'marginal' if _no_real_limiter else 'real',
         'sport_demands': _demands,
@@ -3765,21 +3782,19 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             except Exception:
                 _gc_pro_session = _limiter_pro.get('tip', '')
             
-            # Display: LIMITER + SUPER + GameChanger
-            _nrl_pro = _profile_pro.get('no_real_limiter', False)
-            if _limiter_pro.get('label'):
-                if _nrl_pro:
-                    h += f'<div style="padding:10px;background:linear-gradient(135deg,#f0fdfa,#ccfbf1);border-radius:8px;border-left:3px solid #0d9488;margin-bottom:6px;font-size:12px;">'
-                    h += f'<b>✅ PROFIL ZBALANSOWANY</b><br>'
-                    h += f'<span style="color:#475569;">{_limiter_pro.get("limiter_text","")}</span></div>'
-                else:
-                    h += f'<div style="padding:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:8px;border-left:3px solid #ef4444;margin-bottom:6px;font-size:12px;">'
-                    h += f'<b>{_limiter_pro.get("icon","⚠️")} LIMITER: {_limiter_pro["label"]}</b><br>'
-                    h += f'<span style="color:#475569;">{_limiter_pro.get("limiter_text","")}</span></div>'
-            if _super_pro.get('label'):
-                h += f'<div style="padding:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:8px;border-left:3px solid #16a34a;margin-bottom:6px;font-size:12px;">'
-                h += f'<b>{_super_pro.get("icon","💪")} SUPERMOC: {_super_pro["label"]}</b><br>'
-                h += f'<span style="color:#475569;">{_super_pro.get("super_text","")}</span></div>'
+            # Display: Priority ranking (compact) + GameChanger
+            _prio_pro = _profile_pro.get('priority_ranking', [])
+            if _prio_pro:
+                _top3 = _prio_pro[:3]
+                _atut = _prio_pro[-1] if len(_prio_pro) > 3 else None
+                h += '<div style="padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:6px;font-size:11px;">'
+                h += '<b>Ranking priorytetów:</b><br>'
+                for i, p in enumerate(_top3):
+                    _pc = '#dc2626' if p['score']<55 else ('#d97706' if p['score']<70 else ('#0d9488' if p['score']<85 else '#059669'))
+                    h += f'<span style="color:{_pc};font-weight:700;">#{i+1}</span> {p["icon"]} {p["label"]} <span style="color:{_pc};font-weight:700;">{p["score"]:.0f}</span> · '
+                if _atut:
+                    h += f'<br><span style="color:#059669;font-weight:700;">ATUT:</span> {_atut["icon"]} {_atut["label"]} <span style="color:#059669;font-weight:700;">{_atut["score"]:.0f}</span>'
+                h += '</div>'
             if _gc_pro_session:
                 # Manual override from config takes priority
                 _gc_display = ct.get('_gc_manual') or _gc_pro_session
@@ -4427,70 +4442,79 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
     \u00a0\u00a0\u00b7\u00a0\u00a0 Skala 0\u2013100. Powy\u017cej 70 = bardzo dobrze.
   </div>'''
         
-        # ── SUPERMOC + LIMITER cards ──
-        if _superpower or _limiter:
-            h += '<div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;">'
-            
-            if _superpower and _superpower.get('super_text'):
-                h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:12px;border-left:4px solid #16a34a;">
-  <div style="font-size:13px;font-weight:700;color:#16a34a;margin-bottom:6px;">{_superpower.get('icon','\U0001f4aa')} SUPERMOC: {_superpower.get('label','')}</div>
-  <div style="font-size:12px;color:#334155;line-height:1.6;">{_superpower.get('super_text','')}</div>
-</div>'''
-            
-            if _limiter and _limiter.get('limiter_text'):
-                _nrl = _profile.get('no_real_limiter', False)
-                if _nrl:
-                    # Green/teal styling for "marginal improvement area" — not a real weakness
-                    h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#f0fdfa,#ccfbf1);border-radius:12px;border-left:4px solid #0d9488;">
-  <div style="font-size:13px;font-weight:700;color:#0d9488;margin-bottom:6px;">✅ PROFIL ZBALANSOWANY</div>
-  <div style="font-size:12px;color:#334155;line-height:1.6;">{_limiter.get('limiter_text','')}</div>
-</div>'''
-                else:
-                    h += f'''<div style="flex:1;min-width:250px;padding:14px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-radius:12px;border-left:4px solid #ef4444;">
-  <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:6px;">{_limiter.get('icon','\u26a0\ufe0f')} LIMITER: {_limiter.get('label','')}</div>
-  <div style="font-size:12px;color:#334155;line-height:1.6;">{_limiter.get('limiter_text','')}</div>
-  <div style="margin-top:6px;font-size:11px;color:#64748b;font-style:italic;">\U0001f4a1 {_limiter.get('tip','')}</div>
-</div>'''
-            
-            h += '</div>'
-        
-        # ── OPTION B: Sport-demand priority bar ──
-        _sport_demands = _profile.get('sport_demands', {})
-        if _sport_demands and _cat:
-            _sport_name = ct.get('sport', ct.get('_sport', ct.get('modality', ''))).upper()
-            _sport_icon_map = {'RUN':'🏃','HYROX':'🏋️','BIKE':'🚴','TRIATHLON':'🏊','CROSSFIT':'💪','MMA':'🥊','SOCCER':'⚽','SWIMMING':'🏊','ROWING':'🚣','XC_SKI':'⛷️'}
-            _sp_icon = _sport_icon_map.get(_sport_name, '🎯')
+        # ── PRIORITY RANKING (replaces SUPERMOC/LIMITER + pills) ──
+        _prio = _profile.get('priority_ranking', [])
+        if _prio:
+            _sport_name = (ct.get('sport') or ct.get('_sport') or ct.get('_cfg_sport') or ct.get('_prot_modality') or ct.get('modality') or '').upper()
             _sport_label_map = {'RUN':'biegu','HYROX':'HYROX','BIKE':'kolarstwa','TRIATHLON':'triathlonu','CROSSFIT':'CrossFit','MMA':'MMA','SOCCER':'piłki nożnej','SWIMMING':'pływania','ROWING':'wioślarstwa','XC_SKI':'narciarstwa biegowego'}
             _sp_label = _sport_label_map.get(_sport_name, _sport_name)
+            _sport_icon_map = {'RUN':'🏃','HYROX':'🏋️','BIKE':'🚴','TRIATHLON':'🏊','CROSSFIT':'💪','MMA':'🥊','SOCCER':'⚽','SWIMMING':'🏊','ROWING':'🚣','XC_SKI':'⛷️'}
+            _sp_icon = _sport_icon_map.get(_sport_name, '🎯')
             
-            # Build priority pills sorted by demand desc
-            _pills = []
-            for _dk, _dv in sorted(_sport_demands.items(), key=lambda x: -x[1]):
-                _cd = _cat.get(_dk, {})
-                _csc = _cd.get('score')
-                if _csc is None:
-                    continue
-                _stars = '★★★' if _dv >= 0.8 else ('★★☆' if _dv >= 0.5 else '★☆☆')
-                _star_color = '#d97706' if _dv >= 0.5 else '#94a3b8'
-                if _csc >= 75:
-                    _pill_bg = '#f0fdf4'; _pill_border = '#bbf7d0'; _sc_color = '#16a34a'
-                elif _csc >= 50:
-                    _pill_bg = '#fffbeb'; _pill_border = '#fde68a'; _sc_color = '#d97706'
-                else:
-                    _pill_bg = '#fef2f2'; _pill_border = '#fecaca'; _sc_color = '#ef4444'
-                _pill_icon = _cd.get('icon', '●')
-                _pill_name = _cd.get('label', _dk)
-                # Shorten labels
-                _short = {'Wydolność tlenowa':'VO₂max','Próg mleczanowy':'VT2','Próg tlenowy':'VT1','Ekonomia ruchu':'Ekonomia','Ekonomia biegu':'Ekonomia','Ekonomia biegu (test na bieżni)':'Ekonomia','Wentylacja':'Wentylacja','Serce':'Serce','Regeneracja':'Recovery','Substrat':'FATmax','Wzorzec oddechowy':'Oddychanie'}
-                _pill_short = _short.get(_pill_name, _pill_name[:10])
-                _pills.append(f'<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;background:{_pill_bg};border:1px solid {_pill_border};border-radius:6px;"><span style="font-size:10px;">{_pill_icon} {_pill_short}</span><span style="color:{_sc_color};font-size:11px;font-weight:700;">{_csc:.0f}</span><span style="font-size:9px;color:{_star_color};">{_stars}</span></div>')
+            _top5 = _prio[:5]
+            _ntop = len(_top5)
             
-            if _pills:
-                h += f'''<div style="margin-top:14px;padding:10px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
-  <div style="font-size:11px;font-weight:600;color:#475569;margin-bottom:8px;">{_sp_icon} Priorytety {_sp_label}</div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;">{"".join(_pills)}</div>
-  <div style="margin-top:6px;font-size:10px;color:#94a3b8;">★★★ krytyczne · ★★☆ ważne · ★☆☆ pomocnicze — dla Twojego sportu</div>
-</div>'''
+            def _prio_color(sc):
+                if sc >= 85: return '#059669', '#ecfdf5', '#a7f3d0'
+                if sc >= 70: return '#0d9488', '#f0fdfa', '#99f6e4'
+                if sc >= 55: return '#d97706', '#fffbeb', '#fde68a'
+                return '#dc2626', '#fef2f2', '#fecaca'
+            
+            def _rank_badge(idx, total):
+                if idx == 0: return 'PRIORYTET #1', '#dc2626'
+                if idx == 1: return 'PRIORYTET #2', '#ea580c'
+                if idx == total - 1: return 'TWÓJ ATUT', '#059669'
+                if idx == total - 2: return 'MOCNA STRONA', '#0d9488'
+                return None, None
+            
+            h += f'<div style="margin-top:16px;padding:14px;background:#ffffff;border-radius:12px;border:1px solid #e2e8f0;">'
+            h += f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'
+            h += f'<span style="font-size:18px;">{_sp_icon}</span>'
+            h += f'<div><div style="font-size:12px;font-weight:700;color:#0f172a;">Ranking priorytetów — {_sp_label}</div>'
+            h += f'<div style="font-size:10px;color:#64748b;">od największego potencjału poprawy do atutu</div></div></div>'
+            h += '<div style="height:2px;background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981);border-radius:1px;margin-bottom:10px;opacity:0.5;"></div>'
+            
+            for i, p in enumerate(_top5):
+                sc = p['score']
+                col, bg, bdr = _prio_color(sc)
+                badge_txt, badge_col = _rank_badge(i, _ntop)
+                stars_str = '★' * p['stars'] + '☆' * (3 - p['stars'])
+                bar_w = max(8, sc)
+                
+                is_top = i == 0
+                is_atut = i == _ntop - 1
+                row_bg = 'linear-gradient(135deg,#fef2f2,#fff7ed)' if is_top else ('linear-gradient(135deg,#ecfdf5,#f0fdfa)' if is_atut else '#fafbfc')
+                row_bdr = '#fecaca' if is_top else ('#a7f3d0' if is_atut else '#f1f5f9')
+                
+                h += f'<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:{row_bg};border-radius:8px;border:1px solid {row_bdr};margin-bottom:4px;">'
+                # Rank circle
+                h += f'<div style="width:24px;height:24px;border-radius:50%;background:{col};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">{i+1}</div>'
+                # Icon
+                h += f'<span style="font-size:14px;flex-shrink:0;">{p["icon"]}</span>'
+                # Label + stars
+                h += f'<div style="flex:0 0 90px;"><div style="font-size:11px;font-weight:600;color:#1e293b;">{p["label"]}</div>'
+                h += f'<div style="font-size:8px;color:{"#d97706" if p["stars"]>=2 else "#94a3b8"};">{stars_str}</div></div>'
+                # Bar
+                h += f'<div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">'
+                h += f'<div style="width:{bar_w}%;height:100%;background:linear-gradient(90deg,{col}88,{col});border-radius:3px;"></div></div>'
+                # Score
+                h += f'<div style="font-size:14px;font-weight:800;color:{col};width:28px;text-align:right;">{sc:.0f}</div>'
+                # Badge
+                if badge_txt:
+                    h += f'<div style="font-size:7px;font-weight:700;padding:2px 6px;background:{badge_col}15;color:{badge_col};border-radius:3px;border:1px solid {badge_col}35;white-space:nowrap;flex-shrink:0;">{badge_txt}</div>'
+                h += '</div>'
+            
+            # Rest collapsed
+            _rest = _prio[5:]
+            if _rest:
+                _rest_pills = []
+                for p in _rest:
+                    _rc, _, _ = _prio_color(p['score'])
+                    _rest_pills.append(f'<span style="font-size:9px;color:{_rc};font-weight:600;">{p["icon"]}{p["score"]:.0f}</span>')
+                h += f'<div style="margin-top:4px;font-size:9px;color:#94a3b8;display:flex;gap:8px;align-items:center;padding-left:4px;">+ {" ".join(_rest_pills)}</div>'
+            
+            h += '<div style="margin-top:6px;font-size:9px;color:#94a3b8;text-align:center;">★★★ krytyczne · ★★☆ ważne · ★☆☆ pomocnicze — ranking wg deficyt × waga sportowa</div>'
+            h += '</div>'
         if _limiter and _limiter.get('limiter_text'):
             _lim_key_map = {
                 'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
@@ -4527,7 +4551,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 h += f'''<div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,#fefce8,#fef9c3);border-radius:12px;border-left:4px solid #eab308;">
   <div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:6px;">🎯 GAME CHANGER — trening tygodnia{"  <span style='font-size:10px;'>(✏️ ręcznie)</span>" if _gc_is_manual_lite else ""}</div>
   <div style="font-size:12px;color:#334155;line-height:1.6;">{_gc_display_lite}</div>
-  <div style="margin-top:6px;font-size:10px;color:#a16207;">Odpowiedź na Twój limiter: {_limiter.get('label','')}</div>
+  <div style="margin-top:6px;font-size:10px;color:#a16207;">Priorytet #1: {_limiter.get('label','')}</div>
 </div>'''
         
         # Standalone manual GC when no auto limiter was detected
