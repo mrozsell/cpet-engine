@@ -1015,6 +1015,17 @@ def compute_profile_scores(ct):
     fatmax_pct_vo2 = e10.get('fatmax_pct_vo2peak')
     cop_pct_vo2 = g('COP_pct_vo2peak') or e10.get('cop_pct_vo2peak')
     
+    # FATmax protocol confidence (Chrzanowski-Smith 2018, SJMSS; Amaro-Gahete 2019)
+    # Gold standard: ≥3-min step protocol (ICC 0.94). Ramp/2-min: ICC 0.58-0.76.
+    # Detect from protocol_name: RAMP → low, STEP with ≥3min → high
+    _prot_name_sc = (g('protocol_name') or g('_prot_name') or '').upper()
+    if any(k in _prot_name_sc for k in ('FATMAX', 'STEP_3', 'STEP_4', 'STEP_5')):
+        _fatmax_confidence = 1.0   # dedicated FATmax protocol or long steps
+    elif 'STEP' in _prot_name_sc:
+        _fatmax_confidence = 0.65  # step protocol but likely 2-min
+    else:
+        _fatmax_confidence = 0.45  # ramp or unknown → approximate
+    
     bf_peak = _sf(e07.get('bf_peak')) if e07 else None
     breathing_flags = e07.get('flags', []) if e07 else []
     
@@ -1319,25 +1330,32 @@ def compute_profile_scores(ct):
         # MFO norms (g/min): 0.61 M / 0.50 F athletes (Randell 2017)
         # ~7-8 mg/kg/min is good for trained, ~5 recreational
         _fat_norm = (_fat_v * 1000) / _bm  # mg/kg/min
-        if _fat_norm >= 8.0 and _fat_pct >= 48: _sub_sc = 92
-        elif _fat_norm >= 6.5 and _fat_pct >= 43: _sub_sc = 78
-        elif _fat_norm >= 5.0 and _fat_pct >= 38: _sub_sc = 65
-        elif _fat_norm >= 3.5: _sub_sc = 50
-        else: _sub_sc = 30
+        if _fat_norm >= 8.0 and _fat_pct >= 48: _sub_raw = 92
+        elif _fat_norm >= 6.5 and _fat_pct >= 43: _sub_raw = 78
+        elif _fat_norm >= 5.0 and _fat_pct >= 38: _sub_raw = 65
+        elif _fat_norm >= 3.5: _sub_raw = 50
+        else: _sub_raw = 30
         # Crossover penalty: <40% is common in sedentary (Lima-Silva 2010)
         # Only penalize when very early (<35%) suggesting metabolic inflexibility
-        if _cop_v < 35: _sub_sc *= 0.8
-        elif _cop_v < 42: _sub_sc *= 0.9
+        if _cop_v < 35: _sub_raw *= 0.8
+        elif _cop_v < 42: _sub_raw *= 0.9
+        # Protocol confidence: compress score toward 50 (neutral) for unreliable protocols
+        # Ramp/2-min steps: MFO ICC 0.58-0.76 (Chrzanowski-Smith 2018)
+        # Score = 50 + (raw - 50) * confidence → low confidence = closer to neutral
+        _sub_sc = 50 + (_sub_raw - 50) * _fatmax_confidence
     else:
         _sub_sc = None
     
+    _fatmax_approx = _fatmax_confidence < 0.8
+    _approx_note = ' (orientacyjnie — protokół ramp/krótkie stopnie)' if _fatmax_approx else ''
     if _sub_sc is not None:
         _cat['substrate'] = {
             'score': _sub_sc,
             'label': 'Spalanie tłuszczów',
             'icon': '🔥',
-            'limiter_text': f'Metabolizm tłuszczowy ograniczony (FATmax: {_fat_v * 60:.0f} g/h' + (f', crossover przy {_cop_v:.0f}% VO₂' if _cop_v < 55 else '') + '). Wczesna zależność od glikogenu skraca dystans. Więcej treningów Z2 i strategia żywieniowa pomogą.',
-            'super_text': f'Doskonały metabolizm tłuszczowy (FATmax: {_fat_v * 60:.0f} g/h przy {_fat_pct:.0f}% VO₂max) — Twój organizm świetnie spala tłuszcze, co daje przewagę na długich dystansach.',
+            'confidence': _fatmax_confidence,
+            'limiter_text': f'Metabolizm tłuszczowy ograniczony{_approx_note} (FATmax: {_fat_v * 60:.0f} g/h' + (f', crossover przy {_cop_v:.0f}% VO₂' if _cop_v < 55 else '') + '). ' + ('Wynik orientacyjny z protokołu ramp — dedykowany test FATmax (stopnie ≥3 min) da dokładniejszy obraz. ' if _fatmax_approx else '') + 'Więcej treningów Z2 i strategia żywieniowa pomogą.',
+            'super_text': f'Dobry metabolizm tłuszczowy{_approx_note} (FATmax: {_fat_v * 60:.0f} g/h przy {_fat_pct:.0f}% VO₂max) — Twój organizm spala tłuszcze efektywnie.' + (' Wynik orientacyjny — dedykowany test potwierdzi.' if _fatmax_approx else ' Daje przewagę na długich dystansach.'),
             'tip': 'Długie Z2 + periodyzacja węglowodanów'
         }
     
@@ -1441,6 +1459,14 @@ def compute_profile_scores(ct):
             _limiter_key = 'vo2max'
         elif _vt1_sc < 65:
             _limiter_key = 'vt1'
+    
+    # FATmax limiter override: if protocol is not optimal for FATmax (ramp/<3min steps),
+    # FATmax should not be the primary limiter (Chrzanowski-Smith 2018: ICC 0.58 for ramp).
+    # Redirect to next-lowest category that has better measurement reliability.
+    if _limiter_key == 'substrate' and _fatmax_confidence < 0.8:
+        _non_sub = {k: v for k, v in _valid.items() if k != 'substrate' and v.get('score') is not None}
+        if _non_sub:
+            _limiter_key = min(_non_sub, key=lambda k: _non_sub[k]['score'])
     _super_candidates = {k: v for k, v in _valid.items() if k != 'deconditioning' and v.get('super_text')}
     _super_key = max(_super_candidates, key=lambda k: _super_candidates[k]['score']) if _super_candidates else None
     
