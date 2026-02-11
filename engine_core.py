@@ -1821,7 +1821,13 @@ class Engine_E02_Thresholds_v4:
 
     @classmethod
     def _step_vslope(cls, df_s, df, params):
-        """V-slope breakpoint on step-averaged data."""
+        """V-slope breakpoint on step-averaged data.
+        
+        V5 FIX: Added VT1-specific guards (ported from ramp branch):
+        1. S1 >= 0.98 + VO2% > 70 → suppress (likely VT2, not VT1)
+        2. VO2% > 78% → suppress regardless (too high for VT1)
+        3. slope_ratio < 1.15 → suppress (weak breakpoint)
+        """
         vo2_col = 'vo2_ml_sm' if 'vo2_ml_sm' in df_s.columns else 'vo2_ml'
         vco2_col = 'vco2_ml_sm' if 'vco2_ml_sm' in df_s.columns else 'vco2_ml'
         if vo2_col not in df_s.columns or vco2_col not in df_s.columns:
@@ -1851,17 +1857,30 @@ class Engine_E02_Thresholds_v4:
         closest = (df['time'] - step_time).abs().idxmin()
         row = df.loc[closest]
         bp_pct = float(row.get('vo2_pct', 50))
+        
+        # ── V5 GUARDS (ported from ramp + step-specific) ──────────
+        # Guard A: S1 >= 0.98 + VO2% > 70 → this is VT2 territory
+        if s1 >= 0.98 and bp_pct > 70:
+            return None
+        # Guard B: VO2% > 78% → too high for VT1 on any protocol
+        if bp_pct > 78:
+            return None
+        # Guard C: slope_ratio < 1.15 → no meaningful VT1 breakpoint
+        if ratio < 1.15:
+            return None
+        # Guard D: original guards (kept, but superseded by above)
         if bp_pct > 90:
             return None
-        if bp_pct > 85 and ratio < 1.5:
-            return None
+        
         conf = 0.93 if ratio > 1.5 else 0.87
         return cls._row_to_candidate(row, params, 'vslope', conf,
             {'slope1': s1, 'slope2': s2, 'slope_ratio': ratio, 'source': 'step_averaged'})
 
     @classmethod
     def _step_exco2(cls, df_s, df, params):
-        """ExCO2 breakpoint on step-averaged data."""
+        """ExCO2 breakpoint on step-averaged data.
+        V5 FIX: Added VO2% guard — breakpoint > 78% is VT2, not VT1.
+        """
         if 'exco2' not in df_s.columns or 'time' not in df_s.columns:
             return None
         ex = df_s['exco2'].values
@@ -1886,6 +1905,12 @@ class Engine_E02_Thresholds_v4:
         step_time = df_s.iloc[best_i]['time']
         closest = (df['time'] - step_time).abs().idxmin()
         row = df.loc[closest]
+        bp_pct = float(row.get('vo2_pct', 50))
+        
+        # V5 GUARD: VO2% > 78% → too high for VT1
+        if bp_pct > 78:
+            return None
+        
         return cls._row_to_candidate(row, params, 'exco2_bp', 0.88,
             {'slope1': best_s[0], 'slope2': best_s[1], 'source': 'step_averaged'})
 
@@ -2526,20 +2551,33 @@ class Engine_E02_Thresholds_v4:
 
         # ── VT2-SPECIFIC CONSENSUS ──────────────────────────────────
         # Physiological hierarchy for VT2 (validated on 4 athletes vs lactate):
-        #   TIER 1 (RCP markers): exco2_bp, veq_vco2_rise — these detect 
-        #     the actual respiratory compensation point
+        #   TIER 1 (RCP markers): exco2_bp, veq_vco2_rise, pet_co2_decline
+        #     — these detect the actual respiratory compensation point
+        #     V5: pet_co2_decline promoted from TIER3 → TIER1 (defines RCP)
         #   TIER 2 (confirmatory): rer_crossing — physiological confirmation
-        #   TIER 3 (early signals): veq_vco2_nadir, pet_co2_decline — these 
-        #     detect START of compensation, not the breakpoint itself
+        #   TIER 3 (early signals): veq_vco2_nadir — detects START of 
+        #     compensation, not the breakpoint itself
         #
-        # Strategy: prefer TIER1 consensus. Use TIER3 only as fallback.
+        # V5 FIX #3: Reject any VT2 candidate with VO2% > 95% — this is
+        # VO2max plateau, not RCP. Applied before tier assignment.
+        
+        # V5: VO2% ceiling guard
+        for name in list(valid.keys()):
+            cand = valid[name]
+            if cand.vo2_pct_peak and cand.vo2_pct_peak > 95:
+                vt2.flags.append(f'{name}_rejected_vo2pct_{cand.vo2_pct_peak:.1f}')
+                del valid[name]
+        
+        if not valid:
+            vt2.flags.append('VT2_ALL_REJECTED_VO2_CEILING')
+            return vt2
         
         tier1 = {n: c for n, c in valid.items() 
-                 if n in ('exco2_bp', 'veq_vco2_rise')}
+                 if n in ('exco2_bp', 'veq_vco2_rise', 'pet_co2_decline')}
         tier2 = {n: c for n, c in valid.items() 
                  if n in ('rer_crossing',)}
         tier3 = {n: c for n, c in valid.items() 
-                 if n in ('veq_vco2_nadir', 'pet_co2_decline')}
+                 if n in ('veq_vco2_nadir',)}
         
         # CASE 1: At least 1 tier1 marker exists
         if tier1:
@@ -2884,8 +2922,8 @@ class Engine_E02_Thresholds_v4:
         vt2_weights = {
             'veq_vco2_rise': 1.0,     # Primary RCP marker
             'exco2_bp': 0.90,         # Strong RCP marker
-            'veq_vco2_nadir': 0.80,   # Nadir before rise
-            'pet_co2_decline': 0.75,  # PETCO2 drop
+            'pet_co2_decline': 0.90,  # V5: promoted — PetCO2 drop IS RCP definition
+            'veq_vco2_nadir': 0.70,   # Nadir before rise (early signal)
             'rer_crossing': 0.40,     # Only confirmatory, often too early
         }
         
@@ -3496,12 +3534,23 @@ class Engine_E02_Thresholds_v4:
                 adj_flags.append(f'ADJ_VT2_RER_BORDERLINE:{rer:.3f}')
 
         # ── E. rer_crossing-dependent pair ──────────────────────────
+        # V5 FIX: If tier3 methods (nadir, petco2) are close to consensus,
+        # the pair isn't actually weak — reduce penalty.
         agreed = result.methods_agreed or []
         if (result.n_methods == 2
                 and 'rer_crossing' in agreed
                 and len(agreed) == 2):
-            adj_flags.append(f'ADJ_VT2_WEAK_PAIR:{[m for m in agreed if m != "rer_crossing"][0]}+rer')
-            result.confidence *= 0.92
+            # Check if rejected/tier3 candidates confirm the consensus time
+            rejected_close = {n: c for n, c in all_candidates.items()
+                              if n not in agreed
+                              and abs(c.time_sec - t) <= 120}
+            if rejected_close:
+                # Tier3/rejected methods confirm → mild penalty only
+                adj_flags.append(f'ADJ_VT2_WEAK_PAIR_MITIGATED:{[m for m in agreed if m != "rer_crossing"][0]}+rer+confirmed_by:{list(rejected_close.keys())}')
+                result.confidence *= 0.97  # V5: was 0.92
+            else:
+                adj_flags.append(f'ADJ_VT2_WEAK_PAIR:{[m for m in agreed if m != "rer_crossing"][0]}+rer')
+                result.confidence *= 0.92
 
         # ── F. Total spread ─────────────────────────────────────────
         if len(all_candidates) >= 3:
