@@ -14,7 +14,7 @@ class AnalysisConfig:
     # --- USTAWIENIA ANALIZY ---
     modality: str = "run"
     sex: str = "male"
-    protocol_name: str = "RUN_RAMP_GENERIC"
+    protocol_name: str = "AUTO"
     smooth_window_gas: int = 20
     smooth_window_hr: int = 5
     force_manual_t_stop: Union[str, float, None] = None
@@ -68,21 +68,25 @@ def parse_time_str(x):
 
 # --- SUROWE DEFINICJE PROTOKOŁÓW (panelowe) ---
 RAW_PROTOCOLS = {
-    "RUN_RAMP_GENERIC": [
+    # ═══════════════════════════════════════════════════════════════
+    # 1. RUN_RAMP — Bieżnia ramp ciągły
+    #    Sportowcy: Filipek, Paszko, Kowalczyk (+ domyślny)
+    #    Ciągły wzrost 6→14 km/h, potem kroki nachylenia
+    # ═══════════════════════════════════════════════════════════════
+    "RUN_RAMP": [
         {"type":"const", "start":"00:00", "end":"01:00", "speed_kmh":0.0, "incline_pct":0.0},
         {"type":"const", "start":"01:00", "end":"04:00", "speed_kmh":4.0, "incline_pct":0.0},
         {"type":"const", "start":"04:00", "end":"07:00", "speed_kmh":6.0, "incline_pct":0.0},
         {"type":"ramp_speed", "start":"07:00", "end":"24:00", "speed_from":6.0, "speed_to":14.0, "incline_pct":0.0},
         {"type":"dynamic_incline_steps_to_stop", "start":"24:00", "speed_kmh":14.0, "incline_start":2.5, "incline_step":2.5, "step_every_sec":180},
     ],
-    "RUN_RAMP_6to14_KO2452": [
-        {"type":"const", "start":"00:00", "end":"01:00", "speed_kmh":0.0, "incline_pct":0.0},
-        {"type":"const", "start":"01:00", "end":"04:00", "speed_kmh":4.0, "incline_pct":0.0},
-        {"type":"const", "start":"04:00", "end":"07:00", "speed_kmh":6.0, "incline_pct":0.0},
-        {"type":"ramp_speed", "start":"07:00", "end":"24:00", "speed_from":6.0, "speed_to":14.0, "incline_pct":0.0},
-        {"type":"const", "start":"24:00", "end":"24:52", "speed_kmh":14.0, "incline_pct":2.5},
-    ],
-    "RUN_STEP_BIEZNIA_WYJAZD": [
+
+    # ═══════════════════════════════════════════════════════════════
+    # 2. RUN_STEP_1KMH — Bieżnia step +1 km/h / 2 min
+    #    Sportowcy: Patroński (→14+4%), Malesa (→15+6%), Loc (→14+6%)
+    #    Schodkowy: 4→14 km/h +1 km/h co 2 min, potem nachylenie +2%
+    # ═══════════════════════════════════════════════════════════════
+    "RUN_STEP_1KMH": [
         {"type":"const", "start":"00:00", "end":"01:00", "speed_kmh":0.0, "incline_pct":0.0},
         {"type":"const", "start":"01:00", "end":"03:00", "speed_kmh":4.0, "incline_pct":0.0},
         {"type":"const", "start":"03:00", "end":"05:00", "speed_kmh":6.0, "incline_pct":0.0},
@@ -102,7 +106,294 @@ RAW_PROTOCOLS = {
         {"type":"const", "start":"31:00", "end":"33:00", "speed_kmh":14.0, "incline_pct":14.0},
         {"type":"const", "start":"33:00", "end":"35:00", "speed_kmh":14.0, "incline_pct":16.0},
     ],
+
+    # ═══════════════════════════════════════════════════════════════
+    # 3. RUN_STEP_05KMH — Bieżnia step +0.5 km/h / 2 min
+    #    Sportowcy: Kędziora (5→8.5), Kieliszkowski (4→9.5)
+    #    Delikatny step dla niskiej wydolności / dużej masy ciała
+    # ═══════════════════════════════════════════════════════════════
+    "RUN_STEP_05KMH": [
+        {"type":"const", "start":"00:00", "end":"01:00", "speed_kmh":0.0, "incline_pct":0.0},
+        {"type":"const", "start":"01:00", "end":"03:00", "speed_kmh":4.0, "incline_pct":0.0},
+        {"type":"const", "start":"03:00", "end":"05:00", "speed_kmh":4.5, "incline_pct":0.0},
+        {"type":"const", "start":"05:00", "end":"07:00", "speed_kmh":5.0, "incline_pct":0.0},
+        {"type":"const", "start":"07:00", "end":"09:00", "speed_kmh":5.5, "incline_pct":0.0},
+        {"type":"const", "start":"09:00", "end":"11:00", "speed_kmh":6.0, "incline_pct":0.0},
+        {"type":"const", "start":"11:00", "end":"13:00", "speed_kmh":6.5, "incline_pct":0.0},
+        {"type":"const", "start":"13:00", "end":"15:00", "speed_kmh":7.0, "incline_pct":0.0},
+        {"type":"const", "start":"15:00", "end":"17:00", "speed_kmh":7.5, "incline_pct":0.0},
+        {"type":"const", "start":"17:00", "end":"19:00", "speed_kmh":8.0, "incline_pct":0.0},
+        {"type":"const", "start":"19:00", "end":"21:00", "speed_kmh":8.5, "incline_pct":0.0},
+        {"type":"const", "start":"21:00", "end":"23:00", "speed_kmh":9.0, "incline_pct":0.0},
+        {"type":"const", "start":"23:00", "end":"25:00", "speed_kmh":9.5, "incline_pct":0.0},
+        {"type":"const", "start":"25:00", "end":"27:00", "speed_kmh":10.0, "incline_pct":0.0},
+    ],
+
+    # ═══════════════════════════════════════════════════════════════
+    # 4. BIKE_STEP_20W — Rower step +20 W / 2 min
+    #    Sportowcy: Duszyński (43→351 W), Duszyńska (39→270 W)
+    #    WattBike / ergometr rowerowy, sterowany mocą
+    # ═══════════════════════════════════════════════════════════════
+    "BIKE_STEP_20W": [
+        {"type":"const", "start":"00:00", "end":"01:00", "power_w":0, "speed_kmh":0.0},
+        {"type":"const", "start":"01:00", "end":"03:00", "power_w":40, "speed_kmh":0.0},
+        {"type":"const", "start":"03:00", "end":"05:00", "power_w":60, "speed_kmh":0.0},
+        {"type":"const", "start":"05:00", "end":"07:00", "power_w":80, "speed_kmh":0.0},
+        {"type":"const", "start":"07:00", "end":"09:00", "power_w":100, "speed_kmh":0.0},
+        {"type":"const", "start":"09:00", "end":"11:00", "power_w":120, "speed_kmh":0.0},
+        {"type":"const", "start":"11:00", "end":"13:00", "power_w":140, "speed_kmh":0.0},
+        {"type":"const", "start":"13:00", "end":"15:00", "power_w":160, "speed_kmh":0.0},
+        {"type":"const", "start":"15:00", "end":"17:00", "power_w":180, "speed_kmh":0.0},
+        {"type":"const", "start":"17:00", "end":"19:00", "power_w":200, "speed_kmh":0.0},
+        {"type":"const", "start":"19:00", "end":"21:00", "power_w":220, "speed_kmh":0.0},
+        {"type":"const", "start":"21:00", "end":"23:00", "power_w":240, "speed_kmh":0.0},
+        {"type":"const", "start":"23:00", "end":"25:00", "power_w":260, "speed_kmh":0.0},
+        {"type":"const", "start":"25:00", "end":"27:00", "power_w":280, "speed_kmh":0.0},
+        {"type":"const", "start":"27:00", "end":"29:00", "power_w":300, "speed_kmh":0.0},
+        {"type":"const", "start":"29:00", "end":"31:00", "power_w":320, "speed_kmh":0.0},
+        {"type":"const", "start":"31:00", "end":"33:00", "power_w":340, "speed_kmh":0.0},
+        {"type":"const", "start":"33:00", "end":"35:00", "power_w":360, "speed_kmh":0.0},
+    ],
 }
+
+
+def auto_detect_protocol(df):
+    """Auto-detect protocol from data (markers, speed, power).
+    
+    Returns: (protocol_key, confidence, details_dict) or (None, 0, {})
+    
+    Priority:
+      1. Marker column → parse speed/incline/power markers → step protocol
+      2. Power_W column → detect step pattern → bike step
+      3. Speed column → detect ramp vs step → treadmill ramp
+      4. None detected → return None (user must select)
+    """
+    import re
+    
+    # Get exercise data
+    phase_col = None
+    for c in ['Faza', 'Phase', 'phase']:
+        if c in df.columns:
+            phase_col = c
+            break
+    if phase_col:
+        ex_labels = ['Wysiłek', 'Exercise', 'Ramp', 'Rampa', 'Test']
+        df_ex = df[df[phase_col].isin(ex_labels)].copy()
+        if len(df_ex) < 20:
+            df_ex = df.copy()
+    else:
+        df_ex = df.copy()
+    
+    # Time column
+    t_col = None
+    for c in ['Time_s', 'Time_sec', 'time', 't']:
+        if c in df_ex.columns:
+            t_col = c
+            break
+    if t_col is None:
+        return None, 0, {}
+    
+    t = pd.to_numeric(df_ex[t_col], errors='coerce').values
+    
+    # ── 1. MARKERS ──────────────────────────────────────────────
+    if 'Marker' in df_ex.columns:
+        markers = []
+        for i, m in df_ex['Marker'].dropna().items():
+            s = str(m).strip()
+            if not s or s == 'nan':
+                continue
+            mt = df_ex.loc[i, t_col]
+            if not np.isfinite(mt):
+                continue
+            markers.append((float(mt), s))
+        
+        if len(markers) >= 4:
+            # Parse speed markers
+            speeds = []
+            inclines = []
+            for mt, ml in markers:
+                ml_c = ml.lower().replace('km/h', '').replace(',', '.').strip()
+                # Check incline: "2%", "4%"
+                inc_m = re.match(r'^(\d+(?:\.\d+)?)\s*%$', ml_c)
+                if inc_m:
+                    inclines.append((mt, float(inc_m.group(1))))
+                    continue
+                # Check KO
+                if ml_c in ('ko', 'stop', 'end', 'koniec'):
+                    continue
+                # Try parse as speed
+                try:
+                    v = float(ml_c)
+                    if 2 <= v <= 25:  # plausible treadmill speed
+                        speeds.append((mt, v))
+                except ValueError:
+                    pass
+            
+            if len(speeds) >= 4:
+                # Determine step size
+                diffs = [speeds[i+1][1] - speeds[i][1] for i in range(len(speeds)-1)]
+                avg_step = np.median(diffs) if diffs else 0
+                # Determine step duration
+                dts = [speeds[i+1][0] - speeds[i][0] for i in range(len(speeds)-1)]
+                avg_dur = np.median(dts) if dts else 120
+                
+                details = {
+                    'source': 'markers',
+                    'n_speed_markers': len(speeds),
+                    'n_incline_markers': len(inclines),
+                    'speed_range': (speeds[0][1], speeds[-1][1]),
+                    'avg_step_kmh': round(avg_step, 1),
+                    'avg_step_duration_s': round(avg_dur, 0),
+                    'has_incline_phase': len(inclines) > 0,
+                }
+                
+                if abs(avg_step - 1.0) < 0.3:
+                    return 'RUN_STEP_1KMH', 0.95, details
+                elif abs(avg_step - 0.5) < 0.2:
+                    return 'RUN_STEP_05KMH', 0.95, details
+                else:
+                    # Non-standard step — pick closest
+                    if avg_step >= 0.7:
+                        return 'RUN_STEP_1KMH', 0.70, details
+                    else:
+                        return 'RUN_STEP_05KMH', 0.70, details
+    
+    # ── 2. POWER COLUMN → BIKE STEP ────────────────────────────
+    for pw_col in ['Power_W', 'Leistung_W', 'power_w', 'power']:
+        if pw_col in df_ex.columns:
+            pwr = pd.to_numeric(df_ex[pw_col], errors='coerce').dropna()
+            if len(pwr) > 50 and pwr.max() > 30:
+                # Detect step pattern via unique power levels
+                p_round = (pwr / 10).round() * 10
+                unique_powers = sorted(p_round.unique())
+                if len(unique_powers) >= 5:
+                    diffs = np.diff(unique_powers)
+                    med_step = np.median(diffs)
+                    p_min, p_max = pwr.min(), pwr.max()
+                    details = {
+                        'source': 'power_column',
+                        'power_range': (round(float(p_min), 0), round(float(p_max), 0)),
+                        'n_levels': len(unique_powers),
+                        'median_step_w': round(float(med_step), 0),
+                    }
+                    return 'BIKE_STEP_20W', 0.85, details
+                break
+    
+    # ── 3. VO2 PATTERN → RAMP ──────────────────────────────────
+    # If no markers and no power steps → check if VO2 rises linearly (ramp)
+    for vo_col in ['VO2_ml_min', 'VO2_mlmin', 'vo2_ml']:
+        if vo_col in df_ex.columns:
+            vo2 = pd.to_numeric(df_ex[vo_col], errors='coerce').dropna()
+            if len(vo2) > 50:
+                vo2_sm = vo2.rolling(max(10, len(vo2)//20), center=True, min_periods=5).mean().dropna()
+                # Check linearity: R² of linear fit
+                from scipy.stats import linregress
+                x = np.arange(len(vo2_sm))
+                slope, _, r, _, _ = linregress(x, vo2_sm.values)
+                if r**2 > 0.85 and slope > 0:
+                    details = {'source': 'vo2_linearity', 'r_squared': round(r**2, 3)}
+                    return 'RUN_RAMP', 0.60, details
+                break
+    
+    return None, 0, {}
+
+
+def build_protocol_from_markers(df):
+    """Build actual protocol segments from marker data in the file.
+    
+    Returns list of segment dicts compatible with RAW_PROTOCOLS format,
+    or empty list if markers insufficient.
+    """
+    import re
+    
+    # Get exercise data
+    phase_col = None
+    for c in ['Faza', 'Phase', 'phase']:
+        if c in df.columns:
+            phase_col = c
+            break
+    if phase_col:
+        ex_labels = ['Wysiłek', 'Exercise', 'Ramp', 'Rampa', 'Test']
+        df_ex = df[df[phase_col].isin(ex_labels)].copy()
+        if len(df_ex) < 20:
+            df_ex = df.copy()
+    else:
+        df_ex = df.copy()
+    
+    t_col = None
+    for c in ['Time_s', 'Time_sec', 'time', 't']:
+        if c in df_ex.columns:
+            t_col = c
+            break
+    if t_col is None or 'Marker' not in df_ex.columns:
+        return []
+    
+    # Parse markers
+    events = []
+    for i, m in df_ex['Marker'].dropna().items():
+        s = str(m).strip()
+        if not s or s == 'nan':
+            continue
+        mt = float(df_ex.loc[i, t_col])
+        if not np.isfinite(mt):
+            continue
+        
+        s_c = s.lower().replace('km/h', '').replace(',', '.').strip()
+        
+        # KO marker
+        if s_c in ('ko', 'stop', 'end', 'koniec'):
+            events.append((mt, 'ko', 0))
+            continue
+        
+        # Incline: "2%", "4%"
+        inc_m = re.match(r'^(\d+(?:\.\d+)?)\s*%$', s_c)
+        if inc_m:
+            events.append((mt, 'incline', float(inc_m.group(1))))
+            continue
+        
+        # Speed
+        try:
+            v = float(s_c)
+            if 2 <= v <= 25:
+                events.append((mt, 'speed', v))
+        except ValueError:
+            pass
+    
+    if len(events) < 3:
+        return []
+    
+    # Build segments
+    segments = []
+    last_speed = 0
+    last_incline = 0
+    
+    for idx in range(len(events)):
+        t_start = events[idx][0]
+        t_end = events[idx + 1][0] if idx + 1 < len(events) else t_start + 120
+        etype = events[idx][1]
+        val = events[idx][2]
+        
+        if etype == 'speed':
+            last_speed = val
+            last_incline = 0
+        elif etype == 'incline':
+            last_incline = val
+        elif etype == 'ko':
+            break
+        
+        def _fmt(s):
+            m, sec = divmod(int(s), 60)
+            return f"{m:02d}:{sec:02d}"
+        
+        segments.append({
+            "type": "const",
+            "start": _fmt(t_start),
+            "end": _fmt(t_end),
+            "speed_kmh": last_speed,
+            "incline_pct": last_incline,
+        })
+    
+    return segments
 
 
 # ==========================================
@@ -176,6 +467,12 @@ def compile_protocol_for_apply(raw_segments, t_stop_manual=None):
 
     out = sorted(out, key=lambda x: (x["start_sec"], x["end_sec"]))
     return out
+
+
+# --- Build PROTOCOLS_DB from RAW_PROTOCOLS ---
+PROTOCOLS_DB = {}
+for _pname, _psegs in RAW_PROTOCOLS.items():
+    PROTOCOLS_DB[_pname] = compile_protocol_for_apply(_psegs)
 
 
 class DataTools:
@@ -1535,45 +1832,8 @@ class Engine_E02_Thresholds_v4:
                 cls._apply_metadata_fallback(result, df_ex, params,
                                              file_metadata, vt1, vt2)
 
-            # ── V5 FIX #8: Flat PetCO2 phenotype detection ─────────
-            # If PetCO2 range < 6 mmHg (RAW, not smoothed) → "hyper-efficient ventilator"
-            # VT2 detection unreliable, lower confidence
-            # Kowalczyk: 5.2 mmHg → TRUE positive
-            # Malesa: 8.4 mmHg → should NOT trigger (has clear VT2)
-            try:
-                pc_raw = 'petco2' if 'petco2' in df_ex.columns else 'PetCO2_mmHg'
-                if pc_raw in df_ex.columns:
-                    pc = pd.to_numeric(df_ex[pc_raw], errors='coerce').dropna()
-                    if len(pc) > 20:
-                        pc_range = pc.max() - pc.min()
-                        if pc_range < 6.0:
-                            result['flags'].append(
-                                f'PHENOTYPE_F_FLAT_PETCO2:range={pc_range:.1f}mmHg')
-                            if vt2.time_sec:
-                                vt2.confidence *= 0.85
-                                vt2.flags.append('VT2_FLAT_PETCO2_PENALTY')
-                                result['vt2_confidence'] = vt2.confidence
-            except Exception:
-                pass
-
-            # ── V5 FIX #9: RERmax submax test flag ─────────────────
-            try:
-                rer_col = 'rer_sm' if 'rer_sm' in df_ex.columns else 'rer'
-                if rer_col in df_ex.columns:
-                    rer_max = df_ex[rer_col].max()
-                    if rer_max < 1.10:
-                        result['flags'].append(
-                            f'SUBMAX_TEST:RERmax={rer_max:.3f}<1.10')
-            except Exception:
-                pass
-
             # Final status
             cls._set_status(result, vt1, vt2)
-
-            # V5 FIX #12c: Flag kinetics block detection
-            if params.get('kinetics_block_detected'):
-                result['flags'].append(
-                    f'KINETICS_BLOCK_TRUNCATED:cutoff={params["kinetics_cutoff_time"]:.0f}s')
 
         except Exception as e:
             result['status'] = 'ERROR'
@@ -1657,40 +1917,6 @@ class Engine_E02_Thresholds_v4:
 
         df_ex = df_ex.sort_values('time').reset_index(drop=True)
 
-        # ── V5 FIX #12: Auto-detect kinetyka block / protocol end ────────
-        # Morawska case: step protocol + recovery + re-ramp (kinetyka block)
-        # Detect sudden VO2 crash (>30% drop from rolling peak within 120s)
-        # Truncate to BEFORE the crash to avoid confusing threshold detection
-        try:
-            t_arr = df_ex['time'].values
-            vo2_raw = df_ex['vo2_ml'].values
-            _w = max(5, int(20.0 / max(0.5, np.nanmedian(np.diff(t_arr)))))
-            vo2_rm = pd.Series(vo2_raw).rolling(_w, center=True, min_periods=3).mean().values
-            # Rolling peak (cumulative max up to each point)
-            vo2_running_peak = np.maximum.accumulate(np.nan_to_num(vo2_rm, nan=0))
-            # Find first point where VO2 drops >30% from running peak
-            # and running peak was at least 50% of overall max (avoid warmup)
-            overall_peak = np.nanmax(vo2_rm)
-            crash_idx = None
-            for i in range(len(vo2_rm)):
-                if vo2_running_peak[i] > overall_peak * 0.50:
-                    if vo2_rm[i] < vo2_running_peak[i] * 0.70:  # 30% drop
-                        crash_idx = i
-                        break
-            if crash_idx is not None and crash_idx > len(df_ex) * 0.40:
-                # Find the peak just before crash
-                pre_crash = max(0, crash_idx - _w)
-                t_cut = t_arr[pre_crash]
-                n_before = len(df_ex)
-                df_ex = df_ex[df_ex['time'] <= t_cut].copy()
-                if len(df_ex) >= 50:
-                    df_ex = df_ex.reset_index(drop=True)
-                    # Store flag for later
-                    df_ex.attrs['kinetics_block_detected'] = True
-                    df_ex.attrs['kinetics_cutoff_time'] = float(t_cut)
-        except Exception:
-            pass
-
         # ── Smoothing ────────────────────────────────────────────────────
         dt = df_ex['time'].diff().median()
         if not np.isfinite(dt) or dt <= 0:
@@ -1761,21 +1987,6 @@ class Engine_E02_Thresholds_v4:
             'has_speed': 'speed' in df_ex.columns and df_ex['speed'].notna().sum() > 5,
             'has_power': 'power' in df_ex.columns and df_ex['power'].notna().sum() > 5,
         }
-
-        # V5 FIX #11: Extract body mass for downstream adjustments
-        body_mass = np.nan
-        for bm_col in ['BodyMass_kg', 'Mass_kg', 'Weight_kg', 'weight_kg']:
-            if bm_col in df_ex.columns:
-                bm_vals = pd.to_numeric(df_ex[bm_col], errors='coerce').dropna()
-                if len(bm_vals) > 0:
-                    body_mass = float(bm_vals.iloc[-1])
-                    break
-        params['body_mass_kg'] = body_mass
-
-        # V5 FIX #12b: Pass kinetics block info to result flags
-        if getattr(df_ex, 'attrs', {}).get('kinetics_block_detected'):
-            params['kinetics_block_detected'] = True
-            params['kinetics_cutoff_time'] = df_ex.attrs.get('kinetics_cutoff_time', 0)
 
         # ── Step protocol detection from Markers + Speed ─────────────────
         steps = cls._detect_steps_from_markers_and_speed(df_ex)
@@ -1907,13 +2118,7 @@ class Engine_E02_Thresholds_v4:
 
     @classmethod
     def _step_vslope(cls, df_s, df, params):
-        """V-slope breakpoint on step-averaged data.
-        
-        V5 FIX: Added VT1-specific guards (ported from ramp branch):
-        1. S1 >= 0.98 + VO2% > 70 → suppress (likely VT2, not VT1)
-        2. VO2% > 78% → suppress regardless (too high for VT1)
-        3. slope_ratio < 1.15 → suppress (weak breakpoint)
-        """
+        """V-slope breakpoint on step-averaged data."""
         vo2_col = 'vo2_ml_sm' if 'vo2_ml_sm' in df_s.columns else 'vo2_ml'
         vco2_col = 'vco2_ml_sm' if 'vco2_ml_sm' in df_s.columns else 'vco2_ml'
         if vo2_col not in df_s.columns or vco2_col not in df_s.columns:
@@ -1943,30 +2148,17 @@ class Engine_E02_Thresholds_v4:
         closest = (df['time'] - step_time).abs().idxmin()
         row = df.loc[closest]
         bp_pct = float(row.get('vo2_pct', 50))
-        
-        # ── V5 GUARDS (ported from ramp + step-specific) ──────────
-        # Guard A: S1 >= 0.98 + VO2% > 70 → this is VT2 territory
-        if s1 >= 0.98 and bp_pct > 70:
-            return None
-        # Guard B: VO2% > 78% → too high for VT1 on any protocol
-        if bp_pct > 78:
-            return None
-        # Guard C: slope_ratio < 1.15 → no meaningful VT1 breakpoint
-        if ratio < 1.15:
-            return None
-        # Guard D: original guards (kept, but superseded by above)
         if bp_pct > 90:
             return None
-        
+        if bp_pct > 85 and ratio < 1.5:
+            return None
         conf = 0.93 if ratio > 1.5 else 0.87
         return cls._row_to_candidate(row, params, 'vslope', conf,
             {'slope1': s1, 'slope2': s2, 'slope_ratio': ratio, 'source': 'step_averaged'})
 
     @classmethod
     def _step_exco2(cls, df_s, df, params):
-        """ExCO2 breakpoint on step-averaged data.
-        V5 FIX: Added VO2% guard — breakpoint > 78% is VT2, not VT1.
-        """
+        """ExCO2 breakpoint on step-averaged data."""
         if 'exco2' not in df_s.columns or 'time' not in df_s.columns:
             return None
         ex = df_s['exco2'].values
@@ -1991,12 +2183,6 @@ class Engine_E02_Thresholds_v4:
         step_time = df_s.iloc[best_i]['time']
         closest = (df['time'] - step_time).abs().idxmin()
         row = df.loc[closest]
-        bp_pct = float(row.get('vo2_pct', 50))
-        
-        # V5 GUARD: VO2% > 78% → too high for VT1
-        if bp_pct > 78:
-            return None
-        
         return cls._row_to_candidate(row, params, 'exco2_bp', 0.88,
             {'slope1': best_s[0], 'slope2': best_s[1], 'source': 'step_averaged'})
 
@@ -2434,14 +2620,7 @@ class Engine_E02_Thresholds_v4:
             # 3. Not too early penalty (segments below 45% VO2 are suspect)
             early_penalty = -15 if mid_vo2_pct < 45 else 0
 
-            # V5 FIX #6: Short isocapnic at low VO2% → penalty
-            # Katarzyna Duszyńska case: 33s at 53% was false VT1 (laktat stable)
-            # Short (<40s) + low VO2% (<60%) = likely warmup regulation, not VT1
-            short_low_penalty = 0
-            if duration < 40 and mid_vo2_pct < 60:
-                short_low_penalty = -20  # heavy penalty
-
-            total_score = dur_score + vo2_score + early_penalty + short_low_penalty
+            total_score = dur_score + vo2_score + early_penalty
 
             if total_score > best_score:
                 best_score = total_score
@@ -2463,10 +2642,6 @@ class Engine_E02_Thresholds_v4:
             conf = 0.78
         else:
             conf = 0.70
-
-        # V5 FIX #6b: Additional confidence reduction for short+low segments
-        if duration < 40 and mid_vo2_pct < 60:
-            conf *= 0.80  # 20% penalty — these are unreliable
 
         return cls._row_to_candidate(
             row, params, 'veq_vo2_rise', conf,
@@ -2648,33 +2823,20 @@ class Engine_E02_Thresholds_v4:
 
         # ── VT2-SPECIFIC CONSENSUS ──────────────────────────────────
         # Physiological hierarchy for VT2 (validated on 4 athletes vs lactate):
-        #   TIER 1 (RCP markers): exco2_bp, veq_vco2_rise, pet_co2_decline
-        #     — these detect the actual respiratory compensation point
-        #     V5: pet_co2_decline promoted from TIER3 → TIER1 (defines RCP)
+        #   TIER 1 (RCP markers): exco2_bp, veq_vco2_rise — these detect 
+        #     the actual respiratory compensation point
         #   TIER 2 (confirmatory): rer_crossing — physiological confirmation
-        #   TIER 3 (early signals): veq_vco2_nadir — detects START of 
-        #     compensation, not the breakpoint itself
+        #   TIER 3 (early signals): veq_vco2_nadir, pet_co2_decline — these 
+        #     detect START of compensation, not the breakpoint itself
         #
-        # V5 FIX #3: Reject any VT2 candidate with VO2% > 95% — this is
-        # VO2max plateau, not RCP. Applied before tier assignment.
-        
-        # V5: VO2% ceiling guard
-        for name in list(valid.keys()):
-            cand = valid[name]
-            if cand.vo2_pct_peak and cand.vo2_pct_peak > 95:
-                vt2.flags.append(f'{name}_rejected_vo2pct_{cand.vo2_pct_peak:.1f}')
-                del valid[name]
-        
-        if not valid:
-            vt2.flags.append('VT2_ALL_REJECTED_VO2_CEILING')
-            return vt2
+        # Strategy: prefer TIER1 consensus. Use TIER3 only as fallback.
         
         tier1 = {n: c for n, c in valid.items() 
-                 if n in ('exco2_bp', 'veq_vco2_rise', 'pet_co2_decline')}
+                 if n in ('exco2_bp', 'veq_vco2_rise')}
         tier2 = {n: c for n, c in valid.items() 
                  if n in ('rer_crossing',)}
         tier3 = {n: c for n, c in valid.items() 
-                 if n in ('veq_vco2_nadir',)}
+                 if n in ('veq_vco2_nadir', 'pet_co2_decline')}
         
         # CASE 1: At least 1 tier1 marker exists
         if tier1:
@@ -3019,18 +3181,10 @@ class Engine_E02_Thresholds_v4:
         vt2_weights = {
             'veq_vco2_rise': 1.0,     # Primary RCP marker
             'exco2_bp': 0.90,         # Strong RCP marker
-            'pet_co2_decline': 0.90,  # V5: promoted — PetCO2 drop IS RCP definition
-            'veq_vco2_nadir': 0.70,   # Nadir before rise (early signal)
+            'veq_vco2_nadir': 0.80,   # Nadir before rise
+            'pet_co2_decline': 0.75,  # PETCO2 drop
             'rer_crossing': 0.40,     # Only confirmatory, often too early
         }
-
-        # V5 FIX #11: High body mass → further reduce RER crossing weight
-        # Kieliszkowski case: 149.5kg, RER=1.0 at 56% VO2 (way too early)
-        # Strongmen produce excess CO2 from carrying heavy mass → early RER crossing
-        body_mass = params.get('body_mass_kg', np.nan)
-        if np.isfinite(body_mass) and body_mass > 120:
-            vt2_weights['rer_crossing'] = 0.15  # near-zero weight
-            result.flags.append(f'VT2_HIGH_MASS_RER_PENALTY:mass={body_mass:.0f}kg')
         
         times = []
         weights = []
@@ -3311,28 +3465,6 @@ class Engine_E02_Thresholds_v4:
         """
         If VT1/VT2 not detected, use file metadata (MetaMax values) as fallback.
         """
-
-        # V5 FIX #10: Reject metadata if HR is implausibly high (operator artefact)
-        # Kędziora case: MetaMax VT1_HR=192 at HRmax=202 (95%) → impossible VT1
-        hr_max = params.get('hr_max', 220)
-        meta_vt1_hr = meta.get('VT1_HR')
-        meta_vt2_hr = meta.get('VT2_HR')
-        if meta_vt1_hr is not None and np.isfinite(float(meta_vt1_hr)):
-            if float(meta_vt1_hr) > hr_max * 0.95:
-                result['flags'].append(
-                    f'METADATA_VT1_HR_REJECTED:{float(meta_vt1_hr):.0f}>{hr_max*0.95:.0f}(95%HRmax)')
-                meta = {k: v for k, v in meta.items() if k != 'VT1_HR'}
-        if meta_vt2_hr is not None and np.isfinite(float(meta_vt2_hr)):
-            if float(meta_vt2_hr) > hr_max * 0.97:
-                result['flags'].append(
-                    f'METADATA_VT2_HR_REJECTED:{float(meta_vt2_hr):.0f}>{hr_max*0.97:.0f}(97%HRmax)')
-                meta = {k: v for k, v in meta.items() if k != 'VT2_HR'}
-        # Also reject if VT1 and VT2 HR are within 5 bpm (clearly wrong)
-        if meta_vt1_hr is not None and meta_vt2_hr is not None:
-            if abs(float(meta_vt1_hr) - float(meta_vt2_hr)) < 5:
-                result['flags'].append(
-                    f'METADATA_VT_HR_COLLAPSED:VT1={float(meta_vt1_hr):.0f},VT2={float(meta_vt2_hr):.0f}')
-                meta = {k: v for k, v in meta.items() if k not in ('VT1_HR', 'VT2_HR')}
 
         # VT1 fallback
         if vt1.time_sec is None:
@@ -3624,9 +3756,7 @@ class Engine_E02_Thresholds_v4:
                     if len(pv) > 5:
                         sl = np.polyfit(range(len(pv)), pv.values, 1)[0] / dt_sec
                         if sl > 0.02:
-                            # V5 FIX #7: Stronger penalty — PetCO2 rising means
-                            # we are BEFORE RCP, not at it. Was 0.85, now 0.75.
-                            result.confidence *= 0.75
+                            result.confidence *= 0.85
                             adj_flags.append(f'ADJ_VT2_PETCO2_RISING:{sl:.4f}/s')
                             adj_notes.append(
                                 f'PetCO2 rising at VT2 ({sl:.4f}/s) — RCP may be later.')
@@ -3663,23 +3793,12 @@ class Engine_E02_Thresholds_v4:
                 adj_flags.append(f'ADJ_VT2_RER_BORDERLINE:{rer:.3f}')
 
         # ── E. rer_crossing-dependent pair ──────────────────────────
-        # V5 FIX: If tier3 methods (nadir, petco2) are close to consensus,
-        # the pair isn't actually weak — reduce penalty.
         agreed = result.methods_agreed or []
         if (result.n_methods == 2
                 and 'rer_crossing' in agreed
                 and len(agreed) == 2):
-            # Check if rejected/tier3 candidates confirm the consensus time
-            rejected_close = {n: c for n, c in all_candidates.items()
-                              if n not in agreed
-                              and abs(c.time_sec - t) <= 120}
-            if rejected_close:
-                # Tier3/rejected methods confirm → mild penalty only
-                adj_flags.append(f'ADJ_VT2_WEAK_PAIR_MITIGATED:{[m for m in agreed if m != "rer_crossing"][0]}+rer+confirmed_by:{list(rejected_close.keys())}')
-                result.confidence *= 0.97  # V5: was 0.92
-            else:
-                adj_flags.append(f'ADJ_VT2_WEAK_PAIR:{[m for m in agreed if m != "rer_crossing"][0]}+rer')
-                result.confidence *= 0.92
+            adj_flags.append(f'ADJ_VT2_WEAK_PAIR:{[m for m in agreed if m != "rer_crossing"][0]}+rer')
+            result.confidence *= 0.92
 
         # ── F. Total spread ─────────────────────────────────────────
         if len(all_candidates) >= 3:
@@ -12450,7 +12569,36 @@ class CPET_Orchestrator:
                 df = pd.read_csv(filename, sep=';')
 
             self.raw = DataTools.canonicalize(df)
-            segments = PROTOCOLS_DB.get(self.cfg.protocol_name, [])
+            
+            # ── Protocol resolution: AUTO → detect from data ──────────
+            resolved_protocol = self.cfg.protocol_name
+            _auto_details = {}
+            if resolved_protocol == 'AUTO' or not resolved_protocol:
+                from engine_core import auto_detect_protocol, build_protocol_from_markers
+                detected, conf, details = auto_detect_protocol(self.raw)
+                _auto_details = details
+                if detected and conf >= 0.60:
+                    resolved_protocol = detected
+                    print(f"✅ Auto-detected protocol: {detected} (conf={conf:.2f}, {details.get('source','')})")
+                else:
+                    resolved_protocol = 'RUN_RAMP'  # safe default
+                    print(f"⚠ Auto-detection failed (conf={conf:.2f}), using default: RUN_RAMP")
+            
+            # Try marker-based segments first (most accurate), then template
+            from engine_core import build_protocol_from_markers
+            marker_segments = build_protocol_from_markers(self.raw)
+            if marker_segments and len(marker_segments) >= 4:
+                segments = compile_protocol_for_apply(marker_segments)
+                print(f"✅ Using marker-based protocol ({len(marker_segments)} segments from file)")
+                self.cfg.protocol_name = resolved_protocol  # keep name for modality detection
+                _auto_details['segments_source'] = 'markers'
+            else:
+                segments = PROTOCOLS_DB.get(resolved_protocol, [])
+                self.cfg.protocol_name = resolved_protocol
+                if segments:
+                    _auto_details['segments_source'] = 'template'
+                    print(f"ℹ Using template protocol: {resolved_protocol} ({len(segments)} segments)")
+            
             df_patched = DataTools.apply_protocol(self.raw, segments) if segments else self.raw
             self.processed = DataTools.smooth(df_patched, self.cfg)
         except Exception as e:
@@ -12501,7 +12649,7 @@ class CPET_Orchestrator:
             self.results.get("E01", {}).get("hr_peak"))
         # E06 needs TEST modality (treadmill→run, bike_erg→bike), not sport
         _prot_upper = getattr(self.cfg, "protocol_name", "").upper()
-        if any(k in _prot_upper for k in ('RUN_', 'BRUCE', 'BIEZNIA', 'TREADMILL', 'STEP_3MIN', 'HYROX')):
+        if any(k in _prot_upper for k in ('RUN_', 'BRUCE', 'BIEZNIA', 'TREADMILL', 'HYROX')):
             _e06_mod = 'run'
         elif any(k in _prot_upper for k in ('BIKE_', 'CYCLE', 'ROWER', 'WATT', 'ECHO')):
             _e06_mod = 'bike'

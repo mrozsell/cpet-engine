@@ -919,7 +919,29 @@ class CPET_Orchestrator:
                 df = pd.read_csv(filename, sep=';')
 
             self.raw = DataTools.canonicalize(df)
-            segments = PROTOCOLS_DB.get(self.cfg.protocol_name, [])
+            
+            # Protocol resolution: AUTO → detect from data
+            resolved_protocol = self.cfg.protocol_name
+            if resolved_protocol == 'AUTO' or not resolved_protocol:
+                try:
+                    from engine_core import auto_detect_protocol
+                    detected, conf, _ = auto_detect_protocol(self.raw)
+                    resolved_protocol = detected if detected and conf >= 0.60 else 'RUN_RAMP'
+                except Exception:
+                    resolved_protocol = 'RUN_RAMP'
+                self.cfg.protocol_name = resolved_protocol
+            
+            # Try marker-based segments first, then template
+            try:
+                from engine_core import build_protocol_from_markers
+                marker_segs = build_protocol_from_markers(self.raw)
+                if marker_segs and len(marker_segs) >= 4:
+                    segments = compile_protocol_for_apply(marker_segs)
+                else:
+                    segments = PROTOCOLS_DB.get(resolved_protocol, [])
+            except Exception:
+                segments = PROTOCOLS_DB.get(resolved_protocol, [])
+            
             df_patched = DataTools.apply_protocol(self.raw, segments) if segments else self.raw
             self.processed = DataTools.smooth(df_patched, self.cfg)
         except Exception as e:

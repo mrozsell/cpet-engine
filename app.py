@@ -69,12 +69,11 @@ st.markdown("""
 # ════════════════════════════════════════════════════════
 
 PROTOCOL_MAP = {
-    "RUN_RAMP_GENERIC": "🏃 Ramp — generyczny bieg",
-    "RUN_RAMP_6to14_KO2452": "🏃 Ramp 6→14 km/h (KO2452)",
-    "RUN_STEP_BIEZNIA_WYJAZD": "🏃 Step — bieżnia (Wyjazd)",
-    "RUN_STEP_LACTATE_HYROX_INCL2p5_E2MIN": "🏋️ Step — HYROX lactate",
-    "RUN_STEP_3MIN_EXAMPLE": "🏃 Step 3min — przykład",
-    "BIKE_RAMP_50to250_EXAMPLE": "🚴 Ramp rower 50→250W",
+    "AUTO": "🔍 Auto-detekcja z pliku",
+    "RUN_RAMP": "🏃 Bieżnia — Ramp",
+    "RUN_STEP_1KMH": "🏃 Bieżnia — Step +1 km/h / 2 min",
+    "RUN_STEP_05KMH": "🏃 Bieżnia — Step +0.5 km/h / 2 min",
+    "BIKE_STEP_20W": "🚴 Rower — Step +20 W / 2 min",
 }
 
 # ════════════════════════════════════════════════════════
