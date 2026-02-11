@@ -1723,6 +1723,16 @@ class Engine_E02_Thresholds_v4:
             'has_power': 'power' in df_ex.columns and df_ex['power'].notna().sum() > 5,
         }
 
+        # V5 FIX #11: Extract body mass for downstream adjustments
+        body_mass = np.nan
+        for bm_col in ['BodyMass_kg', 'Mass_kg', 'Weight_kg', 'weight_kg']:
+            if bm_col in df_ex.columns:
+                bm_vals = pd.to_numeric(df_ex[bm_col], errors='coerce').dropna()
+                if len(bm_vals) > 0:
+                    body_mass = float(bm_vals.iloc[-1])
+                    break
+        params['body_mass_kg'] = body_mass
+
         # ── Step protocol detection from Markers + Speed ─────────────────
         steps = cls._detect_steps_from_markers_and_speed(df_ex)
         params['is_step_protocol'] = steps is not None and len(steps) >= 4
@@ -2969,6 +2979,14 @@ class Engine_E02_Thresholds_v4:
             'veq_vco2_nadir': 0.70,   # Nadir before rise (early signal)
             'rer_crossing': 0.40,     # Only confirmatory, often too early
         }
+
+        # V5 FIX #11: High body mass → further reduce RER crossing weight
+        # Kieliszkowski case: 149.5kg, RER=1.0 at 56% VO2 (way too early)
+        # Strongmen produce excess CO2 from carrying heavy mass → early RER crossing
+        body_mass = params.get('body_mass_kg', np.nan)
+        if np.isfinite(body_mass) and body_mass > 120:
+            vt2_weights['rer_crossing'] = 0.15  # near-zero weight
+            result.flags.append(f'VT2_HIGH_MASS_RER_PENALTY:mass={body_mass:.0f}kg')
         
         times = []
         weights = []
@@ -3249,6 +3267,28 @@ class Engine_E02_Thresholds_v4:
         """
         If VT1/VT2 not detected, use file metadata (MetaMax values) as fallback.
         """
+
+        # V5 FIX #10: Reject metadata if HR is implausibly high (operator artefact)
+        # Kędziora case: MetaMax VT1_HR=192 at HRmax=202 (95%) → impossible VT1
+        hr_max = params.get('hr_max', 220)
+        meta_vt1_hr = meta.get('VT1_HR')
+        meta_vt2_hr = meta.get('VT2_HR')
+        if meta_vt1_hr is not None and np.isfinite(float(meta_vt1_hr)):
+            if float(meta_vt1_hr) > hr_max * 0.95:
+                result['flags'].append(
+                    f'METADATA_VT1_HR_REJECTED:{float(meta_vt1_hr):.0f}>{hr_max*0.95:.0f}(95%HRmax)')
+                meta = {k: v for k, v in meta.items() if k != 'VT1_HR'}
+        if meta_vt2_hr is not None and np.isfinite(float(meta_vt2_hr)):
+            if float(meta_vt2_hr) > hr_max * 0.97:
+                result['flags'].append(
+                    f'METADATA_VT2_HR_REJECTED:{float(meta_vt2_hr):.0f}>{hr_max*0.97:.0f}(97%HRmax)')
+                meta = {k: v for k, v in meta.items() if k != 'VT2_HR'}
+        # Also reject if VT1 and VT2 HR are within 5 bpm (clearly wrong)
+        if meta_vt1_hr is not None and meta_vt2_hr is not None:
+            if abs(float(meta_vt1_hr) - float(meta_vt2_hr)) < 5:
+                result['flags'].append(
+                    f'METADATA_VT_HR_COLLAPSED:VT1={float(meta_vt1_hr):.0f},VT2={float(meta_vt2_hr):.0f}')
+                meta = {k: v for k, v in meta.items() if k not in ('VT1_HR', 'VT2_HR')}
 
         # VT1 fallback
         if vt1.time_sec is None:
