@@ -9,7 +9,7 @@ except ImportError:
     RAW_PROTOCOLS = {}
     compile_protocol_for_apply = None
     PROTOCOLS_DB = {}
-            
+
             # ═══════════════════════════════════════════════════════════════
 
 # CHART_JS — interactive chart JavaScript (Canvas-based)
@@ -25,7 +25,7 @@ const _btnOrigColors = {};
 function toggleChart(type) {
     const c = document.getElementById('chart_container');
     if (!c) return;
-    
+
     // Restore all buttons to original state
     document.querySelectorAll('[id^=btn_]').forEach(b => {
         const origColor = b.getAttribute('data-color') || b.style.borderColor;
@@ -33,21 +33,21 @@ function toggleChart(type) {
         b.style.color = origColor;
         b.style.fontWeight = '600';
     });
-    
-    if (_activeChart === type) { 
-        c.style.display='none'; 
-        _activeChart=null; 
-        return; 
+
+    if (_activeChart === type) {
+        c.style.display='none';
+        _activeChart=null;
+        return;
     }
-    
+
     _activeChart = type;
     const btn = document.getElementById('btn_'+type);
-    if (btn) { 
+    if (btn) {
         const origColor = btn.getAttribute('data-color') || btn.style.borderColor;
-        btn.style.background = origColor; 
-        btn.style.color = '#fff'; 
+        btn.style.background = origColor;
+        btn.style.color = '#fff';
     }
-    
+
     c.style.display='block';
     c.innerHTML='<canvas id="cpet_canvas" width="860" height="420" style="max-width:100%;background:white;"></canvas>';
     const canvas=document.getElementById('cpet_canvas');
@@ -56,7 +56,7 @@ function toggleChart(type) {
     const M={t:40,r:60,b:50,l:70};
     const pW=W-M.l-M.r, pH=H-M.t-M.b;
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
-    
+
     // Zone colors for protocol steps (matching training zones)
     // warmup=gray, Z1=blue, Z2=green, Z3=yellow, Z4=orange, Z5=red, recovery=light-green
     const ZONE_COLORS = [
@@ -67,7 +67,7 @@ function toggleChart(type) {
         'rgba(249,115,22,0.30)',    // 4: Z4 orange
         'rgba(239,68,68,0.30)',     // 5: Z5 red
     ];
-    
+
     function getStepZoneColor(steps, stepIdx) {
         const s = steps[stepIdx];
         if (!s) return ZONE_COLORS[0];
@@ -86,7 +86,7 @@ function toggleChart(type) {
         if (frac <= 0.75) return ZONE_COLORS[4];
         return ZONE_COLORS[5];
     }
-    
+
     function drawProtocolBands(steps, tMin, tMax, tStop) {
         if (!steps || steps.length === 0) return;
         steps.forEach((s, i) => {
@@ -96,13 +96,13 @@ function toggleChart(type) {
             ctx.fillStyle = getStepZoneColor(steps, i);
             ctx.fillRect(x1, M.t, x2 - x1, pH);
             // Step label
-            ctx.fillStyle = '#475569'; 
-            ctx.font = '10px sans-serif'; 
+            ctx.fillStyle = '#475569';
+            ctx.font = '10px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('S' + (i + 1), (x1 + x2) / 2, M.t + pH - 6);
         });
     }
-    
+
     function drawAxis(label, min, max, side, color) {
         ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1;
         const steps=5;
@@ -121,7 +121,7 @@ function toggleChart(type) {
         if(side==='left') { ctx.textAlign='center'; ctx.save(); ctx.translate(14,M.t+pH/2); ctx.rotate(-Math.PI/2); ctx.fillText(label,0,0); ctx.restore(); }
         else { ctx.textAlign='center'; ctx.save(); ctx.translate(W-8,M.t+pH/2); ctx.rotate(-Math.PI/2); ctx.fillText(label,0,0); ctx.restore(); }
     }
-    
+
     function drawLine(times,vals,tMin,tMax,vMin,vMax,color,width) {
         ctx.strokeStyle=color; ctx.lineWidth=width||2; ctx.beginPath();
         let started=false;
@@ -133,7 +133,7 @@ function toggleChart(type) {
         }
         ctx.stroke();
     }
-    
+
     function drawVT(time,tMin,tMax,label,color) {
         if(!time) return;
         const x=M.l+(time-tMin)/(tMax-tMin)*pW;
@@ -143,9 +143,9 @@ function toggleChart(type) {
         ctx.fillStyle=color; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
         ctx.fillText(label,x,M.t-6);
     }
-    
+
     function fmtTime(s) { return Math.floor(s/60)+":"+("0"+Math.floor(s%60)).slice(-2); }
-    
+
     function drawTimeAxis(tMin,tMax) {
         const steps=8;
         ctx.fillStyle='#64748b'; ctx.font='11px sans-serif'; ctx.textAlign='center';
@@ -156,7 +156,7 @@ function toggleChart(type) {
         }
         ctx.fillText('Czas (min:ss)',M.l+pW/2,H-6);
     }
-    
+
     function drawDots(times,vals,tMin,tMax,vMin,vMax,color,radius) {
         for(let i=0;i<times.length;i++) {
             if(vals[i]===null||vals[i]===undefined) continue;
@@ -167,12 +167,12 @@ function toggleChart(type) {
             ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
         }
     }
-    
+
     function drawTitle(text) {
         ctx.fillStyle='#1e293b'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
         ctx.fillText(text,W/2,22);
     }
-    
+
     function drawLegend(items) {
         let x = M.l + 10;
         items.forEach(([label, color]) => {
@@ -182,7 +182,7 @@ function toggleChart(type) {
             x += ctx.measureText(label).width + 38;
         });
     }
-    
+
     function drawStopLine(tStop, tMin, tMax) {
         if (!tStop) return;
         const xs=M.l+(tStop-tMin)/(tMax-tMin)*pW;
@@ -192,9 +192,9 @@ function toggleChart(type) {
         ctx.fillStyle='#1e293b'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
         ctx.fillText('STOP',xs,M.t-6);
     }
-    
+
     const d = CD;
-    
+
     // ═══ PROTOCOL CHART ═══
     if(type==='proto' && d.kinetics) {
         const t=d.kinetics.time||[], vo2=d.kinetics.vo2||[];
@@ -219,7 +219,7 @@ function toggleChart(type) {
         drawVT(d.kinetics.vt2_time,tMin,tMax,'VT2','#f59e0b');
         drawLegend([['VO2','#ef4444']].concat(load?[[hasSpd?'Speed':'Power','#8b5cf6']]:[]));
     }
-    
+
     // ═══ VO2 KINETICS ═══
     if(type==='kinetics' && d.kinetics) {
         const t=d.kinetics.time||[], vo2=d.kinetics.vo2||[];
@@ -251,7 +251,7 @@ function toggleChart(type) {
         }
         drawLegend([['VO2','#ef4444']].concat(load?[[hasSpd?'Speed':'Power',hasSpd?'#8b5cf6':'#f59e0b']]:[]));
     }
-    
+
     // ═══ V-SLOPE ═══
     if(type==='vslope' && d.gas) {
         const t=d.gas.time||[], vo2=d.gas.vo2||[], vco2=d.gas.vco2||[];
@@ -267,7 +267,7 @@ function toggleChart(type) {
         drawVT(d.gas.vt2_time,tMin,tMax,'VT2','#f59e0b');
         drawLegend([['VO2','#ef4444'],['VCO2','#3b82f6']]);
     }
-    
+
     // ═══ FAT/CHO ═══
     if(type==='fatchho' && d.substrate) {
         const t=d.substrate.time||[], cho=(d.substrate.cho||[]).map(v=>v*60), fat=(d.substrate.fat||[]).map(v=>v*60);
@@ -293,7 +293,7 @@ function toggleChart(type) {
         drawVT(d.substrate.vt2_time,tMin,tMax,'VT2','#f59e0b');
         drawLegend([['FAT','#f59e0b'],['CHO','#3b82f6']]);
     }
-    
+
     // ═══ LACTATE ═══
     if(type==='lac' && d.lactate) {
         const pts=d.lactate.points||[];
@@ -313,7 +313,7 @@ function toggleChart(type) {
         drawVT(d.lactate.vt1_time,tMin,tMax,'VT1','#22d3ee');
         drawVT(d.lactate.vt2_time,tMin,tMax,'VT2','#f59e0b');
     }
-    
+
     // ═══ NIRS ═══
     if(type==='nirs' && d.nirs) {
         const traces=d.nirs.traces||[];
@@ -334,7 +334,7 @@ function toggleChart(type) {
         drawVT(d.nirs.vt1_time,tMin,tMax,'VT1','#22d3ee');
         drawVT(d.nirs.vt2_time,tMin,tMax,'VT2','#f59e0b');
     }
-    
+
     // ═══ DUAL (Lactate + SmO2) ═══
     if(type==='dual' && d.lactate && d.nirs && d.nirs.traces && d.nirs.traces.length>0) {
         const pts=d.lactate.points||[];
@@ -509,7 +509,7 @@ def generate_training_recs(ct):
     cat = ct.get('_interp_vo2_category', '')
     ath = ct.get('_interp_vo2_athlete_level', '')
     gap = ct.get('_interp_gap_bpm')
-    
+
     # Zone distribution recommendation
     if vt1p and vt1p < 60:
         recs.append({
@@ -539,7 +539,7 @@ def generate_training_recs(ct):
             'zones': '75% Z1-Z2 | 15% Z3 | 10% Z4-Z5',
             'icon': '⚖️', 'color': '#3b82f6'
         })
-    
+
     # Fat metabolism
     fat = ct.get('FATmax_g_min')
     try: fat_v = float(fat) if fat and str(fat) not in ('-','None','') else None
@@ -550,7 +550,7 @@ def generate_training_recs(ct):
             'desc': f'FATmax {fat_v:.2f} g/min — niska oksydacja lipidów. Długie sesje Z2 (60-90 min) na czczo lub z niską CHO mogą poprawić.',
             'icon': '🍃', 'color': '#84cc16'
         })
-    
+
     # Running economy
     re_val = ct.get('E06_RE_mlO2_per_kg_per_km')
     try: re_f = float(re_val) if re_val and str(re_val) not in ('-','None','') else None
@@ -561,7 +561,7 @@ def generate_training_recs(ct):
             'desc': f'RE {re_f:.0f} mlO2/kg/km — potencjał do poprawy. Drills techniczne, strides, plyometria, hill sprints.',
             'icon': '👟', 'color': '#06b6d4'
         })
-    
+
     return recs
 
 def generate_observations(ct):
@@ -569,17 +569,17 @@ def generate_observations(ct):
     def add(text, otype, prio, icon=None):
         icons = {'positive':'🟢','neutral':'🔵','warning':'🟡','negative':'🔴'}
         obs.append({'text': text, 'type': otype, 'priority': prio, 'icon': icon or icons.get(otype,'⚪')})
-    
+
     vo2_rel = ct.get('_interp_vo2_mlkgmin')
     vo2_cat = ct.get('_interp_vo2_category','')
     vo2_pct = ct.get('_interp_vo2_percentile','?')
     vo2_ath = ct.get('_interp_vo2_athlete_level','')
-    
+
     if vo2_rel and vo2_cat:
         cat_pl = {'Superior':'Wybitna','Excellent':'Bardzo dobra','Good':'Dobra','Fair':'Przeciętna','Poor':'Niska'}.get(vo2_cat, vo2_cat)
-        add(f'VO2peak {vo2_rel:.1f} ml/kg/min — percentyl ~{vo2_pct} dla wieku. Kategoria: {cat_pl}. Poziom sportowy: {vo2_ath}.', 
+        add(f'VO2peak {vo2_rel:.1f} ml/kg/min — percentyl ~{vo2_pct} dla wieku. Kategoria: {cat_pl}. Poziom sportowy: {vo2_ath}.',
             'positive' if vo2_cat in ('Superior','Excellent') else 'neutral' if vo2_cat == 'Good' else 'warning', 1)
-    
+
     vt1p = ct.get('_interp_vt1_pct_vo2')
     if vt1p:
         base = ct.get('_interp_aerobic_base','')
@@ -588,14 +588,14 @@ def generate_observations(ct):
         _vt1_mas_pct = _pc.get('vt1_pct_vref')
         _vt1_mas_src = _pc.get('v_ref_source', '')
         _vt1_level = _pc.get('level_by_speed', '')
-        
+
         # Build VT1 text with velocity context
         _vt1_txt = f'VT1 przy {vt1p:.0f}% VO₂max'
         if _vt1_v:
             _vt1_txt += f' / {_vt1_v:.1f} km/h'
         if _vt1_mas_pct and 'MAS_external' in _vt1_mas_src:
             _vt1_txt += f' ({_vt1_mas_pct:.0f}% MAS)'
-        
+
         # Qualify base using BOTH %VO2 AND speed
         if _vt1_v and _vt1_mas_pct:
             # Speed-validated assessment
@@ -636,9 +636,9 @@ def generate_observations(ct):
             else:
                 _vt1_txt += f' — {base.lower()} baza tlenowa. Zalecenie: więcej treningu w Strefie 2.'
                 _vt1_mood = 'warning'
-        
+
         add(_vt1_txt, _vt1_mood, 2)
-    
+
     vt2p = ct.get('_interp_vt2_pct_vo2')
     # Performance Context — VT2 z odniesieniem do prędkości/MAS
     _pc = ct.get('_performance_context', {})
@@ -648,19 +648,19 @@ def generate_observations(ct):
     _pc_level = _pc.get('level_by_speed', '')
     _pc_level_pct = _pc.get('level_by_pct_vo2', '')
     _pc_match = _pc.get('levels_match', True)
-    
+
     if vt2p:
         # Base text — mood determined by BOTH %VO2 AND speed level
         _vt2_txt = f'VT2 przy {vt2p:.0f}% VO₂max'
-        
+
         # Add speed context
         if _pc_v:
             _vt2_txt += f' / {_pc_v:.1f} km/h'
-        
+
         # Add MAS% if available
         if _pc_mas_pct and 'MAS_external' in _pc_mas_src:
             _vt2_txt += f' ({_pc_mas_pct:.0f}% MAS)'
-        
+
         # Determine mood using speed-validated logic
         if _pc_level and _pc_level in ('Elite', 'Well-trained'):
             _vt2_mood = 'positive'
@@ -673,15 +673,15 @@ def generate_observations(ct):
             if vt2p >= 88: _vt2_mood = 'positive'
             elif vt2p >= 80: _vt2_mood = 'neutral'
             else: _vt2_mood = 'warning'
-        
+
         # Add level classification
         if _pc_level:
             _vt2_txt += f' — poziom <b>{_pc_level}</b>'
-        
+
         # Add mismatch warning / context
         if not _pc_match and _pc_level_pct:
             _vt2_txt += f' (uwaga: %VO₂max sugeruje {_pc_level_pct})'
-        
+
         if vt2p >= 88 and _pc_level in ('Sedentary', 'Recreational'):
             _vt2_txt += '. Wysoki próg względny ale niska prędkość → niski pułap VO₂max.'
             _vt2_mood = 'warning'
@@ -693,16 +693,16 @@ def generate_observations(ct):
             _vt2_txt += '. Wysoki próg (brak danych prędkości do pełnej walidacji).'
         elif vt2p < 80:
             _vt2_txt += '. Potencjał do rozwoju przez trening tempo/SST.'
-        
+
         add(_vt2_txt, _vt2_mood, 3)
-    
+
     gap = ct.get('_interp_gap_bpm')
     if gap is not None:
         if gap < 10:
             add(f'Wąska strefa VT1-VT2 ({gap} bpm). Ograniczona przestrzeń do treningu progowego.', 'warning', 4)
         elif gap >= 25:
             add(f'Szeroka strefa VT1-VT2 ({gap} bpm) — duża przestrzeń do treningu tempo/threshold.', 'positive', 4)
-    
+
     is_max = ct.get('_interp_test_maximal')
     conf = ct.get('_interp_test_confidence','')
     rer_p = ct.get('RER_peak')
@@ -718,7 +718,7 @@ def generate_observations(ct):
             add(f'RER peak {rer_val:.2f} — akceptowalny wysiłek, ale bliski granicy submaximalności.', 'neutral', 2)
         else:
             add(f'RER peak {rer_val:.2f} — test prawdopodobnie SUBMAXIMALNY. VO2peak może być niedoszacowane.', 'negative', 1)
-    
+
     ve_sl = ct.get('VE_VCO2_slope')
     try:
         ve_val = float(ve_sl) if ve_sl and str(ve_sl) != '-' else None
@@ -732,7 +732,7 @@ def generate_observations(ct):
             add(f'VE/VCO2 slope {ve_val:.1f} — łagodnie podwyższony (norma <30).', 'warning', 5)
         else:
             add(f'VE/VCO2 slope {ve_val:.1f} — podwyższony. Obniżona efektywność wentylacyjna.', 'negative', 4)
-    
+
     fatmax = ct.get('FATmax_g_min')
     try:
         fat_val = float(fatmax) if fatmax and str(fatmax) != '-' else None
@@ -744,7 +744,7 @@ def generate_observations(ct):
             add(f'FATmax {fat_val:.2f} g/min — dobra zdolność oksydacji tłuszczów.', 'positive', 6)
         else:
             add(f'FATmax {fat_val:.2f} g/min — umiarkowana oksydacja tłuszczów. Trening Z2 może to poprawić.', 'neutral', 6)
-    
+
     # O2-pulse analysis
     o2p = ct.get('O2pulse_peak')
     try: o2p_val = float(o2p) if o2p and str(o2p) not in ('-','None','') else None
@@ -758,7 +758,7 @@ def generate_observations(ct):
             add(f'O2-pulse peak {o2p_val:.1f} ml/beat — w normie.', 'neutral', 6)
         else:
             add(f'O2-pulse peak {o2p_val:.1f} ml/beat — obniżony. Możliwy limiter centralny (SV).', 'warning', 4)
-    
+
     # Running economy (E06)
     re_val = ct.get('E06_RE_mlO2_per_kg_per_km')
     try: re_f = float(re_val) if re_val and str(re_val) not in ('-','None','') else None
@@ -772,7 +772,7 @@ def generate_observations(ct):
             add(f'Ekonomia biegu {re_f:.0f} mlO2/kg/km — przeciętna. Potencjał poprawy przez drills techniczne i plyometrię.', 'warning', 5)
         else:
             add(f'Ekonomia biegu {re_f:.0f} mlO2/kg/km — niska. Priorytet: praca nad techniką biegu.', 'negative', 4)
-    
+
     # Lactate dynamics
     la_peak = ct.get('_interp_la_peak')
     if la_peak:
@@ -780,7 +780,7 @@ def generate_observations(ct):
             add(f'Laktat peak {la_peak:.1f} mmol/L — wysoka zdolność buforowa i tolerancja kwasicy.', 'positive', 6)
         elif la_peak >= 8:
             add(f'Laktat peak {la_peak:.1f} mmol/L — dobra odpowiedź glikolityczna.', 'neutral', 6)
-    
+
     # HR response
     hr_max = ct.get('_interp_hr_max')
     _ag = ct.get('_interp_age', 30)
@@ -795,7 +795,7 @@ def generate_observations(ct):
             add(f'HRmax {hr_m:.0f} bpm ({hr_pct:.0f}% predykcji) — znacząco powyżej normy wiekowej.', 'neutral', 7)
         elif hr_pct < 85 and ct.get('_interp_test_maximal'):
             add(f'HRmax {hr_m:.0f} bpm ({hr_pct:.0f}% predykcji) — chronotropowa niekompetencja? Rozważ ocenę kardiologiczną.', 'warning', 3)
-    
+
 
     # ─── SPORT CONTEXT: BREATHING PATTERN ANALYSIS ──────────────────
     # References:
@@ -811,7 +811,7 @@ def generate_observations(ct):
     #   HYROX recreational: 38-48, competitive: 45-55
     #   Cycling competitive: 50-65, elite: 65-85+
     #   Triathlon competitive: 55-65, elite: 65-80+
-    
+
     e07 = ct.get('_e07_raw', {})
     if e07 and e07.get('status') == 'OK':
         # Read VO2max directly from ct
@@ -836,12 +836,12 @@ def generate_observations(ct):
         _bp_vdvt_peak = e07.get('vdvt_peak')
         _bp_flags = e07.get('flags', [])
         _bp_bf_vt_ratio = e07.get('ve_from_bf_pct', 50)
-        
+
         # Determine if athlete context applies
         _is_athlete = (_bp_vo2 is not None and _bp_vo2 >= 45)
         _is_vent_efficient = (_bp_ve_slope is not None and _bp_ve_slope < 30)
         _has_sport_context = _is_athlete and _is_vent_efficient
-        
+
         # Sport tier classification
         _sport_tier = 'sedentary'
         if _bp_vo2:
@@ -856,7 +856,7 @@ def generate_observations(ct):
                 elif _bp_vo2 >= 45: _sport_tier = 'competitive_endurance'
                 elif _bp_vo2 >= 38: _sport_tier = 'trained'
                 elif _bp_vo2 >= 30: _sport_tier = 'recreational'
-        
+
         # Reference norms by tier (M/F combined approximate)
         _bp_norms = {
             'sedentary':             {'bf_peak': (35,45), 'vt_peak': (1.8,2.5), 've_peak': (70,110),  'bf_dom_normal': False},
@@ -866,12 +866,12 @@ def generate_observations(ct):
             'elite_endurance':       {'bf_peak': (55,70), 'vt_peak': (2.9,4.0), 've_peak': (160,200), 'bf_dom_normal': True},
         }
         _norms = _bp_norms.get(_sport_tier, _bp_norms['sedentary'])
-        
+
         # Generate sport-contextualized breathing observations
         if _has_sport_context:
             _tier_pl = {'elite_endurance':'elitarny wytrzymałościowy', 'competitive_endurance':'startujący wytrzymałościowy',
                         'trained':'wytrenowanego', 'recreational':'rekreacyjnego'}.get(_sport_tier, _sport_tier)
-            
+
             # BF-dominant strategy reinterpretation
             if _bp_strategy == 'BF_DOMINANT' and _norms['bf_dom_normal']:
                 add(f'Wzorzec BF-dominant ({_bp_bf_vt_ratio:.0f}% wentylacji z częstości) — typowa adaptacja sportowa u zawodnika '
@@ -881,7 +881,7 @@ def generate_observations(ct):
                 add(f'Wzorzec BF-dominant ({_bp_bf_vt_ratio:.0f}% z częstości) — u zawodnika rekreacyjnego może wskazywać na '
                     f'ograniczenie mechaniczne lub niedostateczny trening mięśni oddechowych. '
                     f'Rozważ trening oddechowy (IMT/RMT).', 'warning', 7)
-            
+
             # VD/VT reinterpretation for athletes with very low baseline
             if _bp_vdvt_rest is not None and _bp_vdvt_peak is not None:
                 try:
@@ -896,8 +896,8 @@ def generate_observations(ct):
                             add(f'VD/VT wzrost {vdvt_r:.3f}→{vdvt_p:.3f} — mimo wzrostu, wartości bezwzględne w normie '
                                 f'(<0.25). Wzorzec „paradoxical rise" jest klinicznie nieistotny przy niskim baseline.', 'neutral', 8)
                 except: pass
-            
-            # BF peak contextualization 
+
+            # BF peak contextualization
             if _bp_bf_peak:
                 try:
                     bf = float(_bp_bf_peak)
@@ -909,7 +909,7 @@ def generate_observations(ct):
                         add(f'BF peak {bf:.0f}/min — powyżej typowego zakresu ({bf_lo}-{bf_hi}/min) dla poziomu {_tier_pl}. '
                             f'Rozważ ocenę rezerwy oddechowej i mechaniki wentylacji.', 'warning', 8)
                 except: pass
-            
+
             # VE peak contextualization
             if _bp_ve_peak:
                 ve_lo, ve_hi = _norms['ve_peak']
@@ -918,7 +918,7 @@ def generate_observations(ct):
                         f'Sprawdź rezerwę oddechową (BR). BR <15% jest normalne u sportowców (ACC 2021).', 'neutral', 8)
                 elif _bp_ve_peak >= ve_lo:
                     add(f'VE peak {_bp_ve_peak:.0f} L/min — adekwatna do poziomu {_tier_pl} (ref: {ve_lo}-{ve_hi} L/min).', 'positive', 9)
-            
+
             # Flag reinterpretation summary
             _clinical_flags = [f for f in _bp_flags if f in ('BF_DOMINANT_STRAT', 'EARLY_VT_PLATEAU', 'VDVT_NO_DECREASE', 'VDVT_PARADOXICAL_RISE', 'HIGH_BF_VAR_REST', 'HIGH_BF_VAR_EX')]
             if _clinical_flags and _has_sport_context:
@@ -926,14 +926,14 @@ def generate_observations(ct):
                     f'przy VO2max {_bp_vo2:.1f} ml/kg/min i VE/VCO2 slope {_bp_ve_slope:.1f} (<30) '
                     f'te wzorce stanowią ADAPTACJĘ SPORTOWĄ, nie patologię. '
                     f'Kontekst kliniczny wymaga VE/VCO2 >34 i/lub VD/VT >0.30.', 'neutral', 7, '🏃')
-        
+
         else:
             # Non-athlete: standard breathing pattern observations
             if _bp_strategy == 'BF_DOMINANT':
                 add(f'Wzorzec oddechowy BF-dominant ({_bp_bf_vt_ratio:.0f}% z częstości) — '
                     f'wentylacja głównie przez częstość oddechów. Może zwiększać martwą przestrzeń. '
                     f'Rozważ trening oddychania przeponowego.', 'warning', 7)
-            
+
             if _bp_vdvt_rest is not None and _bp_vdvt_peak is not None:
                 try:
                     vdvt_r = float(_bp_vdvt_rest)
@@ -967,12 +967,12 @@ def compute_profile_scores(ct):
     Returns dict with: categories, overall, grade, limiter, superpower, flags, gauge_scores.
     """
     g = ct.get
-    
+
     def _sf(val, default=None):
         """Safe float conversion."""
         try: return float(val) if val not in (None, '', '-', '[BRAK]', 'None', 'nan') else default
         except: return default
-    
+
     # ─── EXTRACT INPUTS ───
     e15 = g('_e15_raw', {})
     e10 = g('_e10_raw', {})
@@ -984,7 +984,7 @@ def compute_profile_scores(ct):
     e16 = g('_e16_raw', {})
     _pc = g('_performance_context', {})
     modality = g('modality', 'run')
-    
+
     vo2_rel = g('VO2max_ml_kg_min')
     vo2_pctile = e15.get('vo2_percentile_approx') or g('vo2_percentile_approx')
     vo2_pct_pred = g('VO2_pct_predicted') or e15.get('vo2_pct_predicted')
@@ -992,30 +992,30 @@ def compute_profile_scores(ct):
     vo2_class_sport = e15.get('vo2_class_sport_desc', '')
     sport_class_raw = e15.get('vo2_class_sport', '')  # UNTRAINED/RECREATIONAL/TRAINED/COMPETITIVE/SUB_ELITE/ELITE
     vo2_det = e15.get('vo2_determination', '') or g('vo2_determination', '')
-    
+
     vt1_pct = g('VT1_pct_VO2peak')
     vt2_pct = g('VT2_pct_VO2peak')
     vt1_speed = g('VT1_Speed')
     vt2_speed = g('VT2_Speed')
     thr_gap = e16.get('threshold_gap_bpm') or g('threshold_gap_bpm')
-    
+
     ve_vco2_slope = g('VE_VCO2_slope') or e03.get('slope_to_vt2')
     vent_class = e03.get('ventilatory_class', '')
-    
+
     gain_z = g('GAIN_z') or e06.get('gain_z_score')
     re_mlkgkm = g('RE_mlkgkm') or e06.get('re_at_vt2')
     re_meas_speed = g('re_measurement_speed_kmh') or e06.get('re_measurement_speed_kmh') or e06.get('load_at_vt2')
-    
+
     o2p_pct = e05.get('pct_predicted_friend') or g('O2pulse_pct_predicted')
     o2p_trajectory = g('O2pulse_trajectory')
     o2p_ff = g('O2pulse_ff')
-    
+
     hrr1 = e08.get('hrr_1min') or g('HRR_1min')
-    
+
     fatmax = e10.get('mfo_gmin')
     fatmax_pct_vo2 = e10.get('fatmax_pct_vo2peak')
     cop_pct_vo2 = g('COP_pct_vo2peak') or e10.get('cop_pct_vo2peak')
-    
+
     # FATmax protocol confidence (Chrzanowski-Smith 2018, SJMSS; Amaro-Gahete 2019)
     # Gold standard: ≥3-min step protocol (ICC 0.94). Ramp/2-min: ICC 0.58-0.76.
     # Detect from protocol_name: RAMP → low, STEP with ≥3min → high
@@ -1026,14 +1026,14 @@ def compute_profile_scores(ct):
         _fatmax_confidence = 0.65  # step protocol but likely 2-min
     else:
         _fatmax_confidence = 0.45  # ramp or unknown → approximate
-    
+
     bf_peak = _sf(e07.get('bf_peak')) if e07 else None
     breathing_flags = e07.get('flags', []) if e07 else []
-    
+
     # ─── PERCENTILE ───
     try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
     except: pctile_val = 50
-    
+
     _is_athlete = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
     # Also treat as athlete if population fitness is high (SUPERIOR/EXCELLENT or ≥80th pctile)
     # A 95th-percentile person IS athletic even if sport-specific class is RECREATIONAL
@@ -1044,12 +1044,12 @@ def compute_profile_scores(ct):
     _sport_label_map = {'ELITE': 'elitarny', 'SUB_ELITE': 'subelitarny', 'COMPETITIVE': 'zawodniczy', 'TRAINED': 'wytrenowany', 'RECREATIONAL': 'rekreacyjny', 'UNTRAINED': 'początkujący'}
     _sport_lbl = _sport_label_map.get(sport_class_raw, '')
     _vo2_ctx = f'poziom {_sport_lbl}' if _sport_lbl else f'~{pctile_val:.0f} percentyl populacyjny'
-    
+
     # ═══════════════════════════════════════════════════════
     # CATEGORY SCORING (10 categories, each 0-100)
     # ═══════════════════════════════════════════════════════
     _cat = {}
-    
+
     # ── 1. VO2max CEILING ──
     # Blend population percentile with sport class for balanced scoring
     _sport_score_map = {'ELITE': 95, 'SUB_ELITE': 85, 'COMPETITIVE': 72, 'TRAINED': 58, 'RECREATIONAL': 38, 'UNTRAINED': 20}
@@ -1072,7 +1072,7 @@ def compute_profile_scores(ct):
         'super_text': f'VO₂max ({_vo2_v:.1f} ml/kg/min, ~{pctile_val:.0f} percentyl) to Twój fundament — masz silny silnik tlenowy, na którym możesz budować resztę.',
         'tip': 'Interwały VO₂max + objętość Z2'
     }
-    
+
     # ── 2. VT2 THRESHOLD ──
     _vt2p = _sf(vt2_pct, 75)
     # Sigmoid scoring: plateau in 75-85% range (physiological sweet spot),
@@ -1091,14 +1091,14 @@ def compute_profile_scores(ct):
         'super_text': f'Próg mleczanowy (VT2) aż przy {_vt2p:.0f}% VO₂max — możesz utrzymywać wysokie tempo przez długi czas zanim organizm się "zakwasi".',
         'tip': 'Trening tempo Z3-Z4 + interwały SST'
     }
-    
+
     # ── 3. VT1 AEROBIC BASE ──
     _vt1p = _sf(vt1_pct, 55)
     _vt1_sc = max(0, min(100, (_vt1p - 40) / 35 * 100))
     _gap = _sf(thr_gap, 20)
     if _gap < 12:
         _vt1_sc *= 0.8
-    
+
     _vt1_trap = False
     # Ceiling trap: high VT1% but low absolute fitness — sport-specific thresholds
     _vt1_trap_thr = {'run':70,'bike':68,'triathlon':70,'rowing':68,'crossfit':62,'hyrox':65,'swimming':66,'xc_ski':74,'soccer':68,'mma':62}.get(modality, 70)
@@ -1113,19 +1113,19 @@ def compute_profile_scores(ct):
         # Fallback: no sport class, use pop pctile
         _vt1_sc *= 0.65
         _vt1_trap = True
-    
+
     _vt1_spd = _sf(vt1_speed, 0)
     if g('test_device', 'treadmill') == 'treadmill' and 0 < _vt1_spd < 9.5 and _vt1p >= 70:
         _vt1_sc *= 0.8
         _vt1_trap = True
-    
+
     if _vt1_trap:
         _vt1_lim = f'VT1 przy {_vt1p:.0f}% VO₂max wygląda dobrze procentowo, ale absolutna wydolność ({_vo2_ctx}' + (f', VT1 przy {_vt1_spd:.1f} km/h' if _vt1_spd > 0 else '') + ') jest niska. Buduj sufit tlenowy — baza pójdzie w górę automatycznie.'
         _vt1_sup = ''
     else:
         _vt1_lim = f'Próg tlenowy (VT1) przy {_vt1p:.0f}% VO₂max' + (f' z wąskim gapem VT2-VT1 ({_gap:.0f} bpm)' if _gap < 15 else '') + ' — baza aerobowa wymaga wzmocnienia. Więcej długich, spokojnych treningów w Z2.'
         _vt1_sup = f'Solidna baza tlenowa — VT1 przy {_vt1p:.0f}% VO₂max' + (f' z szerokim gapem {_gap:.0f} bpm między progami' if _gap >= 25 else '') + '. Twój fundament aerobowy jest mocny.'
-    
+
     _cat['vt1'] = {
         'score': _vt1_sc,
         'label': 'Baza tlenowa',
@@ -1134,7 +1134,7 @@ def compute_profile_scores(ct):
         'super_text': _vt1_sup,
         'tip': 'Długie biegi Z2 + objętość'
     }
-    
+
     # ── 4. ECONOMY ──
     _gz = _sf(gain_z, 0)
     _re_v = _sf(re_mlkgkm)
@@ -1145,7 +1145,7 @@ def compute_profile_scores(ct):
     # treadmill → RE is always valid regardless of sport (crossfit on treadmill → RE)
     _test_device = g('test_device', 'treadmill')
     _use_re = _test_device == 'treadmill' and _re_v and _re_v > 0
-    
+
     # RE-based scoring when test is on treadmill (lower RE = better economy)
     if _use_re:
         # If RE measured at very low speed (<8 km/h), it's walk-to-run transition
@@ -1153,7 +1153,7 @@ def compute_profile_scores(ct):
         _re_speed = _sf(re_meas_speed, 12)
         if _re_speed < 8:
             _use_re = False  # fall through to GAIN-only or neutral
-    
+
     if _use_re:
         # Speed-adjusted RE thresholds (literature: RE improves with speed due to
         # walk-run transition costs being amortized; RE at 10 km/h is naturally worse
@@ -1214,7 +1214,7 @@ def compute_profile_scores(ct):
         _econ_label = f'Ekonomia {_mod_name}'
         _econ_lim = f'Ekonomia {_mod_name} poniżej przeciętnej (z-score: {_gz:+.1f}){_re_info}. {_mod_tip}'
         _econ_sup = f'Doskonała ekonomia {_mod_name} (z-score: {_gz:+.1f}){_re_info} — Twój organizm zużywa mniej energii na danym obciążeniu niż przeciętna osoba.'
-    
+
     _econ_sc = max(0, min(100, _econ_sc))
     _econ_tip_map = {
         'run': 'Plyometria + trening siłowy + technika biegu',
@@ -1237,7 +1237,7 @@ def compute_profile_scores(ct):
         'tip': _econ_tip,
         'no_data': _e06_no_data
     }
-    
+
     # ── 5. VENTILATORY EFFICIENCY ──
     _slp = _sf(ve_vco2_slope, 30)
     if _slp <= 20: _vent_sc = 98
@@ -1262,7 +1262,7 @@ def compute_profile_scores(ct):
         'super_text': f'Wyjątkowo efektywne oddychanie (VE/VCO₂ slope: {_slp:.1f}) — Twoje płuca doskonale radzą sobie z wymianą gazową przy minimalnym wysiłku wentylacyjnym.',
         'tip': 'Trening oddechowy + technika oddychania'
     }
-    
+
     # ── 6. CARDIAC / O2 PULSE ──
     _o2p = _sf(o2p_pct)
     if _o2p is not None:
@@ -1284,7 +1284,7 @@ def compute_profile_scores(ct):
             'super_text': f'Silne serce sportowe \u2014 O\u2082 pulse na {_o2p:.0f}% normy. Ka\u017cde uderzenie serca dostarcza du\u017co tlenu do mi\u0119\u015bni.',
             'tip': 'Interwa\u0142y VO\u2082max + d\u0142ugi trening Z2'
         }
-    
+
     # ── 7. RECOVERY ──
     _hrr_v = _sf(hrr1, 25)
     _rec_mode = g('rec_recovery_mode', 'auto')
@@ -1326,7 +1326,7 @@ def compute_profile_scores(ct):
         'super_text': f'Błyskawiczna regeneracja (HRR₁: {_hrr_v:.0f} bpm/min) — Twój układ nerwowy i serce szybko wracają do normy po wysiłku.',
         'tip': 'Sen + nawodnienie + periodyzacja'
     }
-    
+
     # ── 8. SUBSTRATE / FAT OXIDATION ──
     _fat_v = _sf(fatmax, 0)  # g/min
     _fat_pct = _sf(fatmax_pct_vo2, 45)
@@ -1354,7 +1354,7 @@ def compute_profile_scores(ct):
         _sub_sc = 50 + (_sub_raw - 50) * _fatmax_confidence
     else:
         _sub_sc = None
-    
+
     _fatmax_approx = _fatmax_confidence < 0.8
     _approx_note = ' (orientacyjnie — protokół ramp/krótkie stopnie)' if _fatmax_approx else ''
     if _sub_sc is not None:
@@ -1367,7 +1367,7 @@ def compute_profile_scores(ct):
             'super_text': f'Dobry metabolizm tłuszczowy{_approx_note} (FATmax: {_fat_v * 60:.0f} g/h przy {_fat_pct:.0f}% VO₂max) — Twój organizm spala tłuszcze efektywnie.' + (' Wynik orientacyjny — dedykowany test potwierdzi.' if _fatmax_approx else ' Daje przewagę na długich dystansach.'),
             'tip': 'Długie Z2 + periodyzacja węglowodanów'
         }
-    
+
     # ── 9. BREATHING PATTERN ──
     _bp_sc = None
     if bf_peak is not None and e07:
@@ -1407,7 +1407,7 @@ def compute_profile_scores(ct):
             'super_text': f'Efektywny wzorzec oddechowy (BF peak: {bf_peak:.0f}/min) — oddychasz głęboko i ekonomicznie, co wspiera wydolność.',
             'tip': 'Trening oddechowy + medytacja'
         }
-    
+
     # ── 10. DECONDITIONING ──
     _vo2_pp_v = _sf(vo2_pct_pred, 100)
     if _vo2_pp_v is not None and _vo2_pp_v < 80 and _vent_sc > 55 and _o2p_sc > 60:
@@ -1420,7 +1420,7 @@ def compute_profile_scores(ct):
             'super_text': '',
             'tip': 'Systematyczny trening od podstaw'
         }
-    
+
     # ═══════════════════════════════════════════════════════
     # CONTEXTUAL OVERRIDES
     # ═══════════════════════════════════════════════════════
@@ -1431,13 +1431,13 @@ def compute_profile_scores(ct):
         _vt2_trap = True
     elif _vt2p >= 85 and sport_class_raw in ('UNTRAINED', 'RECREATIONAL') and pctile_val < 80:
         _vt2_trap = True
-    
+
     if _vt2_trap:
         _cat['vo2max']['score'] *= 0.75
         _cat['vt2']['score'] *= 0.8
         _cat['vo2max']['limiter_text'] = f'Próg wysoki ({_vt2p:.0f}% VO₂max) ale wydolność absolutna niska ({_vo2_ctx}) — prawdziwym limiterem jest niski VO₂max. Buduj sufit tlenowy interwałami i objętością.'
         _cat['vt2']['super_text'] = f'Próg przy {_vt2p:.0f}% VO₂max — dobry stosunek, ale sufit (VO₂max) wymaga podniesienia.'
-    
+
     _econ_mask = False
     _sport_trained = sport_class_raw in ('TRAINED', 'COMPETITIVE', 'SUB_ELITE', 'ELITE')
     _vt1_spd_m = _sf(vt1_speed, 0)
@@ -1449,12 +1449,12 @@ def compute_profile_scores(ct):
         if not (_use_re and _re_v < 185):  # Don't mask when RE is elite
             _cat['economy']['score'] *= 0.85
             _econ_mask = True
-    
+
     # ═══════════════════════════════════════════════════════
     # FIND LIMITER & SUPERPOWER
     # ═══════════════════════════════════════════════════════
     _valid = {k: v for k, v in _cat.items() if v.get('score') is not None}
-    
+
     # ── Sport demand profiles (literature-based priority multipliers) ──
     # Higher = more important for that sport's performance.
     # Joyner & Coyle 2008: VO2max+VT2+RE = "big 3" for running
@@ -1474,12 +1474,12 @@ def compute_profile_scores(ct):
         'soccer':    {'vt2':1.0, 'recovery':0.9, 'vo2max':0.7, 'vt1':0.6, 'economy':0.4, 'cardiac':0.5, 'ventilation':0.3, 'substrate':0.2, 'breathing':0.1},
     }
     _demands = _sport_demands.get(modality, {'vo2max':1.0, 'vt2':0.8, 'vt1':0.5, 'economy':0.5, 'ventilation':0.3, 'cardiac':0.5, 'recovery':0.5, 'substrate':0.3, 'breathing':0.1})
-    
+
     # ── Detect "no real limiter" mode ──
     # Threshold 75: below = genuinely actionable weakness, above = marginal gains only
     _min_score = min((v.get('score', 100) for v in _valid.values()), default=100)
     _no_real_limiter = _min_score >= 75
-    
+
     # ── Sport-weighted limiter selection ──
     # For each category: priority = (100 - score) × sport_demand
     # This means: a small deficit in a CRITICAL sport category outweighs
@@ -1511,13 +1511,13 @@ def compute_profile_scores(ct):
             'tip': v.get('tip', ''),
         })
     _priority_ranking.sort(key=lambda x: -x['deficit'])
-    
+
     # ── Limiter = priority #1 from ranking (replaces old standalone logic) ──
     if _priority_ranking:
         _limiter_key = _priority_ranking[0]['key']
-    
+
     # ── Safety redirects (measurement reliability) ──
-    
+
     # Economy redirect for RECREATIONAL/UNTRAINED: GAIN confounded with fitness
     if _limiter_key == 'economy' and sport_class_raw in ('UNTRAINED', 'RECREATIONAL'):
         _vo2_sc = _valid.get('vo2max', {}).get('score', 100)
@@ -1526,25 +1526,25 @@ def compute_profile_scores(ct):
             _limiter_key = 'vo2max'
         elif _vt1_sc < 65:
             _limiter_key = 'vt1'
-    
+
     # FATmax redirect for unreliable protocol (ramp / <3min steps)
     if _limiter_key == 'substrate' and _fatmax_confidence < 0.8:
         _non_sub = [p for p in _priority_ranking if p['key'] != 'substrate']
         if _non_sub:
             _limiter_key = _non_sub[0]['key']
-    
+
     # Breathing redirect: low-weight auxiliary, score ≥65 = normal
     if _limiter_key == 'breathing' and _valid.get('breathing', {}).get('score', 0) >= 65:
         _non_bp = [p for p in _priority_ranking if p['key'] != 'breathing']
         if _non_bp:
             _limiter_key = _non_bp[0]['key']
-    
+
     _super_candidates = {k: v for k, v in _valid.items() if k != 'deconditioning' and v.get('super_text')}
     _super_key = max(_super_candidates, key=lambda k: _super_candidates[k]['score']) if _super_candidates else None
-    
+
     _limiter = _valid.get(_limiter_key, {}) if _limiter_key else {}
     _superpower = _valid.get(_super_key, {}) if _super_key else {}
-    
+
     # ── No-real-limiter: override limiter text to "marginal" tone ──
     if _no_real_limiter and _limiter_key and _limiter:
         _lim_label = _limiter.get('label', _limiter_key)
@@ -1554,7 +1554,7 @@ def compute_profile_scores(ct):
             f'ale przy wszystkich kategoriach ≥75 nie masz wyraźnego limitera. '
             f'Profil fizjologiczny jest zbalansowany — kontynuuj obecny trening.'
         )
-    
+
     # ═══════════════════════════════════════════════════════
     # OVERALL SCORE (weighted composite)
     # ═══════════════════════════════════════════════════════
@@ -1590,14 +1590,14 @@ def compute_profile_scores(ct):
             _overall /= _w_sum  # normalize to 0-100 based on present categories only
     except:
         pass
-    
+
     # Grade (Polish descriptive)
     if _overall >= 85: _grade = 'Elitarny'
     elif _overall >= 72: _grade = 'Bardzo dobry'
     elif _overall >= 58: _grade = 'Dobry'
     elif _overall >= 42: _grade = 'Przeciętny'
     else: _grade = 'Do poprawy'
-    
+
     # Grade (letter, for PRO backward compat)
     if _overall >= 85: _grade_letter = 'A+'
     elif _overall >= 75: _grade_letter = 'A'
@@ -1606,9 +1606,9 @@ def compute_profile_scores(ct):
     elif _overall >= 45: _grade_letter = 'C+'
     elif _overall >= 35: _grade_letter = 'C'
     else: _grade_letter = 'D'
-    
+
     _grade_col = '#16a34a' if _overall >= 72 else ('#d97706' if _overall >= 50 else '#dc2626')
-    
+
     # ═══════════════════════════════════════════════════════
     # AEROBIC BASE LABEL (replaces interpret_thresholds logic)
     # ═══════════════════════════════════════════════════════
@@ -1619,7 +1619,7 @@ def compute_profile_scores(ct):
     elif _vt1p >= 60: _aerobic_base = 'Dobra'
     elif _vt1p >= 50: _aerobic_base = 'Umiarkowana'
     else: _aerobic_base = 'Słaba'
-    
+
     # ═══════════════════════════════════════════════════════
     # INTERPRETATIONS (unified text generation)
     # Each key → ready HTML string or None (=skip)
@@ -1627,7 +1627,7 @@ def compute_profile_scores(ct):
     _interp = {}
     _sc = sport_class_raw.upper() if sport_class_raw else ''
     _sc_pl = vo2_class_sport or _sc  # e.g. "RECREATIONAL (run)"
-    
+
     # ── VO₂max interpretation ──
     # Uses BOTH population percentile AND sport class for balanced assessment
     try:
@@ -1659,7 +1659,7 @@ def compute_profile_scores(ct):
                 _interp['vo2max'] = f'Twój VO\u2082max ({_vo2_v:.1f} ml/kg/min) wskazuje na <b>potencjał do poprawy</b> \u2014 regularny trening przyniesie szybkie efekty.'
     except:
         pass
-    
+
     # ── Thresholds (VT2 + VT1 combined) ──
     try:
         if _vt2p > 0:
@@ -1679,7 +1679,7 @@ def compute_profile_scores(ct):
                 _interp['thresholds'] = f'Twoje progi mają <b>przestrzeń do poprawy</b> (VT2 przy {_vt2p:.0f}%). Systematyczny trening w Z3-Z4 pomoże je podnieść.'
     except:
         pass
-    
+
     # ── VT1 (aerobic base) — only if meaningful ──
     try:
         if _vt1p > 0 and _vt1_trap:
@@ -1689,7 +1689,7 @@ def compute_profile_scores(ct):
             _interp['vt1'] = f'Baza tlenowa (VT1 przy {_vt1p:.0f}% VO\u2082max) <b>wymaga wzmocnienia</b>. Więcej długich, spokojnych treningów w Z2 pomoże.'
     except:
         pass
-    
+
     # ── Recovery ──
     try:
         if _hrr_v >= 40:
@@ -1700,7 +1700,7 @@ def compute_profile_scores(ct):
             _interp['recovery'] = f'Regeneracja <b>wymaga poprawy</b> (HRR\u2081: {_hrr_v:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.'
     except:
         pass
-    
+
     # ── Economy ──
     try:
         if _use_re:
@@ -1719,7 +1719,7 @@ def compute_profile_scores(ct):
                 _interp['economy'] = f'Ekonomia ruchu <b>do poprawy</b> (z-score: {_gz:+.1f}){" \u2014 RE: " + str(int(_re_v)) + " ml/kg/km" if _re_v else ""}. Plyometria i trening siłowy pomogą.'
     except:
         pass
-    
+
     # ── Ventilation ──
     try:
         if _slp < 25:
@@ -1731,7 +1731,7 @@ def compute_profile_scores(ct):
         # 25-34 → skip (normal range)
     except:
         pass
-    
+
     # ── Cardiac ──
     try:
         if _o2p > 115:
@@ -1741,7 +1741,7 @@ def compute_profile_scores(ct):
         # 85-115 → skip (normal)
     except:
         pass
-    
+
     # ── Substrate ──
     try:
         if _fat_v >= 0.5:
@@ -1835,11 +1835,11 @@ class ReportAdapter:
                 return v
         return None
 
-    
+
     @staticmethod
     def describe_protocol(df, cfg, results):
         """Generate protocol description and interactive table HTML."""
-        
+
         proto_name = getattr(cfg, 'protocol_name', '') or ''
         modality = getattr(cfg, 'modality', 'run')
         mod_pl = 'Bieżnia' if modality == 'run' else ('Rower' if modality == 'bike' else modality.capitalize())
@@ -1851,11 +1851,11 @@ class ReportAdapter:
             mod_pl = 'Rower'
         elif any(k in _prot_upper for k in ('ROW_', 'WIOSLARZ')):
             mod_pl = 'Ergometr wiośl.'
-        
+
         t_stop = results.get('E00', {}).get('t_stop', 0)
         dur_min = t_stop / 60 if t_stop else 0
         rec_avail = results.get('E00', {}).get('recovery_0_60_available', False)
-        
+
         # Try RAW_PROTOCOLS first
         raw_segments = None
         try:
@@ -1865,28 +1865,28 @@ class ReportAdapter:
                 if proto_name in rp:
                     raw_segments = rp[proto_name]
         except: pass
-        
+
         # Build short description
         parts = [mod_pl]
         if raw_segments:
             speeds = [s.get('speed_kmh') for s in raw_segments if s.get('speed_kmh') is not None and s.get('speed_kmh',0) > 0]
             inclines = [s.get('incline_pct') for s in raw_segments if s.get('incline_pct',0) > 0]
             powers = [s.get('power_w') for s in raw_segments if s.get('power_w') is not None]
-            
+
             # Determine type
             types = set(s.get('type','') for s in raw_segments)
             if any('ramp' in t for t in types):
                 parts.append('rampowy')
             else:
                 parts.append('stopniowany')
-            
+
             if speeds:
                 parts.append(f'{min(speeds):.0f}–{max(speeds):.0f} km/h')
             if powers:
                 parts.append(f'{min(powers):.0f}–{max(powers):.0f} W')
             if inclines:
                 parts.append(f'do {max(inclines):.0f}%')
-            
+
             # Step duration
             const_segs = [s for s in raw_segments if s.get('type')=='const' and s.get('speed_kmh',0) > 0]
             if const_segs:
@@ -1916,7 +1916,7 @@ class ReportAdapter:
                     except: pass
             if speeds_m:
                 parts.append(f'stopniowany, {min(speeds_m):.0f}–{max(speeds_m):.0f} km/h')
-        
+
         if dur_min > 0:
             parts.append(f'{dur_min:.0f} min')
         if rec_avail:
@@ -1924,9 +1924,9 @@ class ReportAdapter:
             rec_s = t_max - t_stop if t_max > t_stop else 0
             if rec_s > 30:
                 parts.append(f'recovery {rec_s/60:.0f} min')
-        
+
         return ', '.join(parts)
-    
+
     @staticmethod
     def protocol_table_html(cfg, t_stop=None):
         """Generate protocol stages table HTML - only up to t_stop, with stop marker."""
@@ -1935,16 +1935,16 @@ class ReportAdapter:
         segs = rp.get(proto_name, [])
         if not segs:
             return ''
-        
+
         modality = getattr(cfg, 'modality', 'run')
-        is_run = ct.get('test_device', 'treadmill') == 'treadmill'
-        
+        is_run = modality in ('run', 'walk')
+
         def parse_t(t_str):
             try:
                 p = str(t_str).split(':')
                 return int(p[0])*60 + int(p[1])
             except: return 99999
-        
+
         rows = ''
         last_active_row = None
         for s in segs:
@@ -1953,11 +1953,11 @@ class ReportAdapter:
             end_t = s.get('end','')
             start_s = parse_t(start)
             end_s = parse_t(end_t)
-            
+
             # Skip stages entirely after t_stop
             if t_stop and start_s >= t_stop:
                 break
-            
+
             if is_run:
                 speed = s.get('speed_kmh', s.get('speed_from',''))
                 speed_to = s.get('speed_to','')
@@ -1977,16 +1977,16 @@ class ReportAdapter:
                     desc = f'{pwr}\u2192{pwr_to} W'
                 else:
                     desc = f'{pwr} W'
-            
+
             # Determine if this is the stop stage (t_stop falls within it)
             is_stop_stage = t_stop and start_s < t_stop and end_s >= t_stop
-            
+
             # Truncate end time to t_stop if stage extends beyond
             if t_stop and end_s > t_stop:
                 mins = int(t_stop // 60)
                 secs = int(t_stop % 60)
                 end_t = f'{mins}:{secs:02d}'
-            
+
             # Color
             if stype == 'const' and float(s.get('speed_kmh',0) or 0) == 0 and float(s.get('power_w',0) or 0) == 0:
                 bg = '#f1f5f9'
@@ -1996,15 +1996,15 @@ class ReportAdapter:
                 bg = '#fef3c7'
             else:
                 bg = 'white'
-            
+
             # Stop marker
             stop_mark = ' \u26d4' if is_stop_stage else ''
-            
+
             rows += f'<tr style="background:{bg};"><td style="padding:3px 8px;">{start}</td><td style="padding:3px 8px;">{end_t}{stop_mark}</td><td style="padding:3px 8px;">{desc}</td></tr>'
-        
+
         if not rows:
             return ''
-        
+
         return f"""<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">
 <tr style="background:#f8fafc;font-weight:600;"><th style="padding:4px 8px;text-align:left;">Start</th><th style="padding:4px 8px;text-align:left;">End</th><th style="padding:4px 8px;text-align:left;">{'Prędkość / Nachylenie' if is_run else 'Moc'}</th></tr>
 {rows}</table>"""
@@ -2084,7 +2084,7 @@ class ReportAdapter:
         ct['_chart_lt2_la'] = r11.get('lt2_la_mmol')
         ct['_chart_lt1_method'] = r11.get('lt1_method', '')
         ct['_chart_lt2_method'] = r11.get('lt2_method', '')
-        
+
         # E12 NIRS data
         r12_full = results.get('E12', {})
         ct['_chart_nirs_traces'] = r12_full.get('traces', [])
@@ -2095,14 +2095,14 @@ class ReportAdapter:
         _sex = getattr(cfg, 'sex', 'male') or 'male'
         ct['_interp_sex'] = _sex
         _weight = float(ct.get('weight', 70) or 70)
-        
+
         # VO2peak relative
         _vo2_abs = results.get('E01', {}).get('vo2_peak_mlmin')
         _vo2_rel = None
         if _vo2_abs and _weight and _weight > 0:
             _vo2_rel = _vo2_abs / _weight
         ct['_interp_vo2_mlkgmin'] = round(_vo2_rel, 1) if _vo2_rel else None
-        
+
         # Classify VO2max
         if _vo2_rel:
             _vc = interpret_vo2max(_vo2_rel, _age, _sex)
@@ -2111,7 +2111,7 @@ class ReportAdapter:
             ct['_interp_vo2_athlete_level'] = _vc['athlete_level']
             ct['_interp_vo2_color'] = _vc['color']
             ct['_interp_vo2_thresholds'] = _vc['thresholds']
-        
+
         # Thresholds analysis
         _vt1_vo2 = results.get('E02', {}).get('vt1_vo2_mlmin') or results.get('E01', {}).get('vt1_vo2_mlmin')
         _vt2_vo2 = results.get('E02', {}).get('vt2_vo2_mlmin') or results.get('E01', {}).get('vt2_vo2_mlmin')
@@ -2133,7 +2133,7 @@ class ReportAdapter:
                 _hm = ct.get('HR_max')
                 _hr_max_val = float(_hm) if _hm and str(_hm) not in ('-','None','0','') else None
             except: _hr_max_val = None
-        
+
         if _vo2_abs and (_vt1_vo2 or _vt2_vo2):
             _ti = interpret_thresholds(_vt1_vo2, _vt2_vo2, _vo2_abs, _vt1_hr_val, _vt2_hr_val, _hr_max_val)
             ct['_interp_vt1_pct_vo2'] = _ti.get('vt1_pct_vo2')
@@ -2142,7 +2142,7 @@ class ReportAdapter:
             ct['_interp_vt2_pct_hr'] = _ti.get('vt2_pct_hr')
             ct['_interp_aerobic_base'] = _ti.get('aerobic_base', '-')
             ct['_interp_gap_bpm'] = _ti.get('gap_bpm')
-        
+
         # Test validity
         _rer_val = results.get('E01', {}).get('rer_peak')
         if _rer_val is None:
@@ -2155,7 +2155,7 @@ class ReportAdapter:
         if _e04 and _e04.get('status') == 'OK':
             _la_vals = [p.get('la', 0) for p in _e04.get('points', []) if p.get('la')]
             if _la_vals: _la_peak = max(_la_vals)
-        
+
         _tv = interpret_test_validity(_rer_val, _hr_max_val, _age, _la_peak)
         ct['_interp_test_maximal'] = _tv['is_maximal']
         ct['_interp_test_confidence'] = _tv['confidence']
@@ -2164,21 +2164,21 @@ class ReportAdapter:
         ct['_interp_la_peak'] = round(_la_peak, 1) if _la_peak else None
         ct['_interp_hr_max'] = _hr_max_val
         ct['_interp_age'] = _age
-        
+
         # Generate observations
         # [observations moved to end of build_canon_table]
-        
+
         # --- PROTOCOL SUMMARY ---
         _df_ex_p = results.get('_df_ex', pd.DataFrame())
         _df_full_p = results.get('_df_full', pd.DataFrame())
         _e00_p = results.get('E00', {})
         _e01_p = results.get('E01', {})
         _t_stop_p = _e00_p.get('t_stop', 0)
-        
+
         ct['_prot_name'] = getattr(cfg, 'protocol_name', '-')
         ct['_prot_modality'] = getattr(cfg, 'modality', '-')
         ct['_gc_manual'] = getattr(cfg, 'gc_manual', None)
-        
+
         # Protocol steps from RAW_PROTOCOLS
         try:
             from engine_core import RAW_PROTOCOLS as _RP
@@ -2211,29 +2211,29 @@ class ReportAdapter:
             }
             _prot_steps.append(_step)
         ct['_prot_steps'] = _prot_steps
-        
+
         if not _df_ex_p.empty and 'Time_sec' in _df_ex_p.columns:
             _t_ex = pd.to_numeric(_df_ex_p['Time_sec'], errors='coerce')
             _t_full = pd.to_numeric(_df_full_p.get('Time_sec', pd.Series()), errors='coerce') if not _df_full_p.empty else pd.Series()
-            
+
             ct['_prot_ex_duration_s'] = round(_t_stop_p, 0) if _t_stop_p else round(float(_t_ex.max() - _t_ex.min()), 0)
             ct['_prot_total_duration_s'] = round(float(_t_full.max()), 0) if _t_full.notna().sum() > 0 else ct['_prot_ex_duration_s']
             ct['_prot_rec_duration_s'] = round(ct['_prot_total_duration_s'] - ct['_prot_ex_duration_s'], 0)
-            
+
             _hr_ex = pd.to_numeric(_df_ex_p.get('HR_bpm', pd.Series()), errors='coerce')
             _vo2_ex = pd.to_numeric(_df_ex_p.get('VO2_mlmin', _df_ex_p.get('VO2_ml_min', pd.Series())), errors='coerce')
             ct['_prot_hr_start'] = round(float(_hr_ex.iloc[:20].mean()), 0) if _hr_ex.notna().sum() > 20 else None
             ct['_prot_hr_end'] = round(float(_hr_ex.iloc[-20:].mean()), 0) if _hr_ex.notna().sum() > 20 else None
             ct['_prot_vo2_start'] = round(float(_vo2_ex.iloc[:20].mean()), 0) if _vo2_ex.notna().sum() > 20 else None
             ct['_prot_vo2_end'] = round(float(_vo2_ex.iloc[-20:].mean()), 0) if _vo2_ex.notna().sum() > 20 else None
-            
+
             # Phases
             if 'Faza' in _df_full_p.columns:
                 _phases = _df_full_p['Faza'].dropna().unique().tolist()
                 ct['_prot_phases'] = [str(p) for p in _phases]
             else:
                 ct['_prot_phases'] = []
-            
+
             # Speed/power range if available
             for col, key in [('Speed_kmh', '_prot_speed'), ('Power_W', '_prot_power')]:
                 _vals = pd.to_numeric(_df_ex_p.get(col, pd.Series()), errors='coerce')
@@ -2254,14 +2254,14 @@ class ReportAdapter:
             _hr = pd.to_numeric(_ds.get('HR_bpm', pd.Series()), errors='coerce')
             _cho = pd.to_numeric(_ds.get('CHO_g_min', pd.Series()), errors='coerce')
             _fat = pd.to_numeric(_ds.get('FAT_g_min', pd.Series()), errors='coerce')
-            
+
             _valid_gas = _t.notna() & _vo2.notna() & _vco2.notna()
             if _valid_gas.sum() > 10:
                 ct['_chart_gas_time'] = [round(v,1) for v in _t[_valid_gas].tolist()]
                 ct['_chart_gas_vo2'] = [round(v,0) for v in _vo2[_valid_gas].tolist()]
                 ct['_chart_gas_vco2'] = [round(v,0) for v in _vco2[_valid_gas].tolist()]
                 ct['_chart_gas_hr'] = [round(v,0) if pd.notna(v) else None for v in _hr[_valid_gas].tolist()]
-            
+
             _valid_sub = _t.notna() & (_cho.notna() | _fat.notna())
             if _valid_sub.sum() > 10:
                 ct['_chart_sub_time'] = [round(v,1) for v in _t[_valid_sub].tolist()]
@@ -2295,14 +2295,14 @@ class ReportAdapter:
         ct['_chart_vo2peak'] = results.get('E01', {}).get('vo2_peak_mlmin')
 
 
-        
+
         # E02 thresholds for overlay
         ct['_chart_vt1_time'] = r02.get('vt1_time_sec')
         ct['_chart_vt2_time'] = r02.get('vt2_time_sec')
         ct['_chart_vt1_hr'] = r02.get('vt1_hr')
         ct['_chart_vt2_hr'] = r02.get('vt2_hr')
-        
-        # E18 cross-validation for annotations  
+
+        # E18 cross-validation for annotations
         r18 = results.get('E18', {})
         ct['_chart_e18_l1'] = r18.get('layer1_lactate_at_vt', {})
 
@@ -2522,7 +2522,7 @@ class ReportAdapter:
         ct['fat_pct_at_vt1'] = r10.get('fat_pct_at_vt1')
         ct['cho_pct_at_vt1'] = r10.get('cho_pct_at_vt1')
 
-        
+
         # ─── FINAL: Generate observations & training recs (after all ct values populated) ───
         ct['_e07_raw'] = r07
         ct['_interp_observations'] = generate_observations(ct)
@@ -2707,7 +2707,7 @@ class ReportAdapter:
         e07 = ct.get("_e07_raw", {})
         if not e07 or e07.get("status") != "OK":
             return ""
-        
+
         # ─── Determine sport context ───
         _bp_vo2 = ct.get('_interp_vo2_mlkgmin')
         _bp_ve_slope = None
@@ -2728,7 +2728,7 @@ class ReportAdapter:
                 if _bp_vo2 >= 55: _sport_tier = 'elite'
                 elif _bp_vo2 >= 45: _sport_tier = 'competitive'
                 elif _bp_vo2 >= 38: _sport_tier = 'trained'
-        
+
         L = []
         _ctx_tag = f" [kontekst: sportowiec {_sport_tier}, VO2max {_bp_vo2:.0f}]" if _is_sport else ""
         L.append(f"3b. Wzorzec oddychania \u2014 Breathing Pattern (E07 v2.0){_ctx_tag}:")
@@ -2738,7 +2738,7 @@ class ReportAdapter:
             L.append(f"  \u21b3 przy VT1: BF [{e07['bf_at_vt1']}] /min  |  VT [{e07.get('vt_at_vt1_L','?')}] L")
         if e07.get("bf_at_vt2"):
             L.append(f"  \u21b3 przy VT2: BF [{e07['bf_at_vt2']}] /min  |  VT [{e07.get('vt_at_vt2_L','?')}] L")
-        
+
         # VT Plateau — sport context
         plat = e07.get("vt_plateau_vs_vt2", "?")
         plat_t = e07.get("vt_plateau_time_s")
@@ -2757,7 +2757,7 @@ class ReportAdapter:
             m, s = int(plat_t // 60), int(plat_t % 60)
             L.append(f"\u2022 Plateau VT: t={m}:{s:02d} ({e07.get('vt_plateau_pct_exercise',0):.0f}% testu) "
                      f"| poziom [{plat_l}] L | {_pd}")
-        
+
         # Strategy — sport context
         strat = e07.get("strategy", "?")
         if _is_sport:
@@ -2770,7 +2770,7 @@ class ReportAdapter:
                    "BALANCED": "zr\u00f3wnowa\u017cony wk\u0142ad VT i BF"}.get(strat, "")
         L.append(f"\u2022 Strategia wentylacji: [{strat}] (VT {e07.get('ve_from_vt_pct',0):.0f}% / BF {e07.get('ve_from_bf_pct',0):.0f}%)")
         L.append(f"  \u21b3 {_sd}")
-        
+
         # Timing
         if e07.get("duty_cycle_rest") is not None:
             L.append(f"\u2022 Timing oddechowy:")
@@ -2784,7 +2784,7 @@ class ReportAdapter:
             L.append(f"  \u21b3 Duty cycle (tI/tTot): rest [{e07['duty_cycle_rest']}] \u2192 peak [{dc_peak}]{dc_desc} (ref: 0.40-0.50)")
             if e07.get("mean_insp_flow_peak_Ls"):
                 L.append(f"  \u21b3 Mean inspiratory flow peak: [{e07['mean_insp_flow_peak_Ls']}] L/s")
-        
+
         # VD/VT — sport context
         if e07.get("vdvt_rest") is not None:
             traj = e07.get("vdvt_trajectory", "?")
@@ -2795,7 +2795,7 @@ class ReportAdapter:
                 vp = float(vdvt_p)
             except:
                 vr, vp = 0.3, 0.3
-            
+
             if _is_sport and vp < 0.20:
                 _td = {"NORMAL_DECREASE": "norma \u2014 VD/VT maleje (prawid\u0142owy V/Q matching)",
                        "FLAT": "VD/VT stabilne \u2014 przy warto\u015bciach <0.20 to NORMA SPORTOWA (elitarna efektywno\u015b\u0107)",
@@ -2808,7 +2808,7 @@ class ReportAdapter:
                 _td = {"NORMAL_DECREASE": "norma \u2014 VD/VT maleje (prawid\u0142owy V/Q matching)",
                        "FLAT": "\u26a0 VD/VT nie maleje \u2014 mo\u017cliwy V/Q mismatch",
                        "ABNORMAL_INCREASE": "\u26a0 VD/VT ro\u015bnie \u2014 patologiczny V/Q mismatch"}.get(traj, "")
-            
+
             parts = [f"rest [{vdvt_r}]"]
             if e07.get("vdvt_at_vt1"): parts.append(f"VT1 [{e07['vdvt_at_vt1']}]")
             if e07.get("vdvt_at_vt2"): parts.append(f"VT2 [{e07['vdvt_at_vt2']}]")
@@ -2821,7 +2821,7 @@ class ReportAdapter:
                 _ref += " | U sportowc\u00f3w: warto\u015bci <0.10-0.15 cz\u0119ste"
             L.append(f"  \u21b3 {_ref}{est_note}")
             L.append(f"  \u21b3 Trajektoria: {_td}")
-        
+
         # Tachypnea — sport context for BF threshold
         tachy = e07.get("tachypnea_vs_vt2", "NONE")
         if tachy != "NONE" and e07.get("tachypnea_time_s"):
@@ -2838,7 +2838,7 @@ class ReportAdapter:
             L.append(f"\u2022 Tachypnea (BF>50): t={m2}:{s2:02d} ({e07.get('tachypnea_pct_exercise',0):.0f}% testu) \u2014 {_tach}")
         elif tachy == "NONE":
             L.append(f"\u2022 Tachypnea (BF>50): nie wyst\u0105pi\u0142a \u2014 dobra kontrola oddychania")
-        
+
         # RSBI
         if e07.get("rsbi_peak"):
             _rd = ""
@@ -2846,7 +2846,7 @@ class ReportAdapter:
             elif e07["rsbi_peak"] > 25: _rd = " \u2014 podwy\u017cszony"
             else: _rd = " \u2014 prawid\u0142owy"
             L.append(f"\u2022 RSBI (BF/VT): rest [{e07.get('rsbi_rest','?')}] \u2192 peak [{e07['rsbi_peak']}] bpm/L{_rd}")
-        
+
         # PTVV
         if e07.get("ptvv") is not None:
             ptvv = e07["ptvv"]
@@ -2855,13 +2855,13 @@ class ReportAdapter:
             else: _pv = "regularny wzorzec"
             L.append(f"\u2022 PTVV (nieregularno\u015b\u0107 VT): [{ptvv}] \u2014 {_pv}")
             L.append(f"  \u21b3 Ref: Kn\u00f6pfel 2024 (norma <0.15)")
-        
+
         # Sighs
         if e07.get("sigh_count", 0) > 0:
             L.append(f"\u2022 Westchnienia: [{e07['sigh_count']}] ({e07['sigh_rate_per_min']}/min)")
             if e07["sigh_count"] > 3:
                 L.append(f"  \u21b3 \u26a0 Cz\u0119ste westchnienia \u2014 Periodic Deep Sighing?")
-        
+
         # Breathing pattern classification — sport context
         bp = e07.get("breathing_pattern", "?")
         if _is_sport:
@@ -2878,7 +2878,7 @@ class ReportAdapter:
                    "RAPID_SHALLOW": "\u26a0 Szybki p\u0142ytki oddech \u2014 wczesna dominacja BF",
                    "PERIODIC": "\u26a0 Oddychanie periodyczne"}.get(bp, bp)
         L.append(f"\u2022 Klasyfikacja: [{bp}] \u2014 {_bp}")
-        
+
         # Flags — sport context annotation
         fl = e07.get("flags", [])
         if fl:
@@ -2894,10 +2894,8 @@ class ReportAdapter:
                 L.append(f"\u2022 Flagi: [{' | '.join(parts)}]")
             else:
                 L.append(f"\u2022 Flagi: [{', '.join(fl)}]")
-        
-        return "\n".join(L)
 
-    @staticmethod
+        return "\n".join(L)
 
     @staticmethod
     def _nirs_report(ct):
@@ -3075,14 +3073,14 @@ class ReportAdapter:
         """Generate E18 cross-validation text section."""
         if ct.get('E18_status') != 'OK':
             return ""
-        
+
         lines = []
         lines.append("CROSS-WALIDACJA VT↔LT (E18)")
-        
+
         e18_sum = ct.get('E18_summary', {})
         lines.append(f"  Ocena: {e18_sum.get('overall_class', '').replace('_',' ')} "
                      f"({e18_sum.get('overall_score_pct', 0):.0f}%)")
-        
+
         # L1
         l1 = ct.get('E18_layer1', {})
         for prefix, label in [('vt1','VT1'), ('vt2','VT2')]:
@@ -3091,13 +3089,13 @@ class ReportAdapter:
                 lines.append(f"  {d.get('emoji','')} La@{label}: "
                            f"{d.get('la_interpolated_mmol','-')} mmol/L "
                            f"[{d.get('status','')}] (opt: {d.get('optimal_range',[])})")
-        
+
         # L2
         l2 = ct.get('E18_layer2', {})
         l2s = l2.get('summary', {})
         if l2s.get('domains_tested', 0) > 0:
             lines.append(f"  Domeny: {l2s.get('domains_confirmed',0)}/{l2s.get('domains_tested',0)} potwierdzone")
-        
+
         # L3
         l3 = ct.get('E18_layer3', {})
         for prefix, label in [('threshold_1','VT1↔LT1'), ('threshold_2','VT2↔LT2')]:
@@ -3106,12 +3104,12 @@ class ReportAdapter:
                 lines.append(f"  {d.get('emoji','')} {label}: "
                            f"Δt={d.get('delta_time_sec',0):+.0f}s "
                            f"[{d.get('time_concordance','')}]")
-        
+
         # Interpretation
         interp = e18_sum.get('interpretation', '')
         if interp:
             lines.append(f"  → {interp}")
-        
+
         return "\n".join(lines)
 
 
@@ -3119,7 +3117,7 @@ class ReportAdapter:
     def _render_charts_html(ct):
         """Generate interactive charts section with buttons and Canvas JS."""
         import json as _json
-        
+
         _lac_pts = ct.get('_chart_lactate_points', [])
         _lac_poly = ct.get('_chart_lactate_poly', {})
         _nirs_traces = ct.get('_chart_nirs_traces', [])
@@ -3129,10 +3127,10 @@ class ReportAdapter:
         _has_substrate = len(ct.get('_chart_sub_time', [])) > 10 and max(ct.get('_chart_sub_fat', [0]) or [0]) > 0
         _has_kinetics = len(ct.get('_chart_full_time', [])) > 10
         _has_protocol = len(ct.get('_chart_protocol_steps', [])) > 0
-        
+
         if not _has_lactate and not _has_nirs and not _has_gas and not _has_substrate and not _has_kinetics and not _has_protocol:
             return ''
-        
+
         _chart_data = {
             'lactate': {
                 'points': [{'time_sec': p.get('time_sec', 0), 'la': p.get('la', p.get('lactate_mmol', 0))} for p in _lac_pts],
@@ -3189,11 +3187,11 @@ class ReportAdapter:
             }
         }
         _cj = _json.dumps(_chart_data, default=str)
-        
+
         h = '<div style="margin:24px 0 12px;border-top:2px solid #e2e8f0;padding-top:18px;">'
         h += '<div style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:12px;">'
         h += '&#128202; Wykresy interaktywne</div>'
-        
+
 
         _sq = chr(39)
         _has_protocol = len(ct.get('_prot_steps', [])) > 0
@@ -3213,7 +3211,7 @@ class ReportAdapter:
             h += '<button onclick="toggleChart(' + _sq + 'dual' + _sq + ')" id="btn_dual" data-color="#7c3aed" style="margin:4px 6px;padding:8px 18px;border:2px solid #7c3aed;border-radius:8px;background:#fff;color:#7c3aed;font-weight:600;font-size:13px;cursor:pointer;font-family:Segoe UI,system-ui,sans-serif;">▶ Laktat + SmO2</button>'
         h += '<div id="chart_container" style="display:none;margin-top:14px;"></div></div>'
         h += '<script>\nconst CD=' + _cj + ';\n' + CHART_JS + '</script>'
-        
+
         return h
 
     @staticmethod
@@ -3327,12 +3325,12 @@ class ReportAdapter:
         protocol = v('protocol_name')
         modality = v('modality','run')
         test_date = v('test_date','')
-        
+
         # E00
         e00 = g('_e00_raw',{})
         t_stop = e00.get('t_stop',0)
         dur_str = _fmt_dur(t_stop)
-        
+
         # E01/E15 — Peak values
         vo2_rel = g('VO2max_ml_kg_min')
         vo2_abs = g('VO2max_L_min') or g('VO2max_abs_Lmin')
@@ -3353,7 +3351,7 @@ class ReportAdapter:
         plateau_note = e15.get('vo2_method_note','')
         hrr1_class_e15 = e15.get('hrr_1min_class','')
         hrr1_desc_e15 = e15.get('hrr_1min_desc','')
-        
+
         # E02 — Thresholds
         e02 = g('_e02_raw', {})
         if not e02 or not isinstance(e02, dict):
@@ -3367,7 +3365,7 @@ class ReportAdapter:
         vt1_speed = g('VT1_Speed'); vt2_speed = g('VT2_Speed')
         vt1_rer_val = e02.get('vt1_rer'); vt2_rer_val = e02.get('vt2_rer')
         vt1_vo2_abs = e02.get('vt1_vo2_mlmin'); vt2_vo2_abs = e02.get('vt2_vo2_mlmin')
-        
+
         # E03 — VE/VCO2
         e03 = g('_e03_raw',{})
         ve_vco2_slope = g('VE_VCO2_slope') or e03.get('slope_to_vt2')
@@ -3378,7 +3376,7 @@ class ReportAdapter:
         ve_vco2_full = e03.get('slope_full')
         ve_vco2_to_vt1 = e03.get('slope_to_vt1')
         slope_pct_pred = e03.get('pct_predicted')
-        
+
         # E04 — OUES
         e04 = g('_e04_raw',{})
         oues100 = e04.get('oues100'); oues90 = e04.get('oues90'); oues75 = e04.get('oues75')
@@ -3386,7 +3384,7 @@ class ReportAdapter:
         oues_kg = e04.get('oues_per_kg')
         oues_pct = e04.get('oues_pct_hollenberg')
         oues_stab = e04.get('oues_submax_stability')
-        
+
         # E05 — O2 Pulse
         e05 = g('_e05_raw',{})
         o2p_peak = e05.get('o2pulse_peak')
@@ -3395,7 +3393,7 @@ class ReportAdapter:
         o2p_pct = e05.get('pct_predicted_friend')
         sv_est = e05.get('estimated_sv_peak_ml')
         o2p_desc = e05.get('trajectory_desc','')
-        
+
         # E06 — Economy / Efficiency
         e06 = g('_e06_raw',{})
         re_vt1 = e06.get('re_at_vt1'); re_vt2 = e06.get('re_at_vt2')
@@ -3405,7 +3403,7 @@ class ReportAdapter:
         gain_z = e06.get('gain_z_score')
         lin_break = e06.get('linearity_break_time_s')
         delta_eff = e06.get('delta_efficiency_pct')
-        
+
         # E07 — Breathing
         e07 = g('_e07_raw',{})
         bp_pattern = e07.get('breathing_pattern','?')
@@ -3416,13 +3414,13 @@ class ReportAdapter:
         rsbi = e07.get('rsbi_peak')
         vt_plat_t = e07.get('vt_plateau_time_s'); vt_plat_pct = e07.get('vt_plateau_pct_exercise')
         e07_flags = e07.get('flags',[])
-        
+
         # E08 — HRR
         e08 = g('_e08_raw',{})
         hrr1 = e08.get('hrr_1min'); hrr3 = e08.get('hrr_3min')
         hrr1_class = e08.get('interpretation_1min','?')
         hrr3_class = e08.get('interpretation_3min','?')
-        
+
         # E10 — Substrate
         e10 = g('_e10_raw',{})
         fatmax = e10.get('mfo_gmin'); fatmax_hr = e10.get('fatmax_hr')
@@ -3435,14 +3433,14 @@ class ReportAdapter:
         fat_vt1_g = e10.get('fat_gmin_at_vt1'); cho_vt1_g = e10.get('cho_gmin_at_vt1')
         total_kcal = e10.get('total_kcal'); total_fat = e10.get('total_fat_kcal'); total_cho = e10.get('total_cho_kcal')
         zone_sub = e10.get('zone_substrate',{})
-        
+
         # E11 — Lactate
         e11 = g('_e11_raw',{})
         la_peak = e11.get('la_peak'); la_base = e11.get('la_baseline')
         lt1_hr = e11.get('lt1_hr_bpm'); lt1_time = e11.get('lt1_time_sec')
         lt2_hr = e11.get('lt2_hr_bpm'); lt2_time = e11.get('lt2_time_sec')
         lt1_method = e11.get('lt1_method',''); lt2_method = e11.get('lt2_method','')
-        
+
         # E12 — NIRS
         e12 = g('_e12_raw',{})
         smo2_rest = e12.get('smo2_rest'); smo2_min = e12.get('smo2_min')
@@ -3457,7 +3455,7 @@ class ReportAdapter:
         bp1_vs_vt1 = e12.get('bp1_vs_vt1_s'); bp2_vs_vt2 = e12.get('bp2_vs_vt2_s')
         e12_flags = e12.get('flags',[])
         e12_quality = e12.get('signal_quality','')
-        
+
         # E13 — Cardiovascular coupling
         e13 = g('_e13_raw',{})
         ci = e13.get('chronotropic_index'); ci_class = e13.get('ci_class','?')
@@ -3467,7 +3465,7 @@ class ReportAdapter:
         o2p_traj_e13 = e13.get('o2pulse_trajectory','')
         o2p_clinical = e13.get('o2pulse_clinical','')
         cv_coupling = e13.get('overall_cv_coupling','')
-        
+
         # E14 — Recovery kinetics
         e14 = g('_e14_raw',{})
         t_half_vo2 = e14.get('t_half_vo2_s')
@@ -3479,7 +3477,7 @@ class ReportAdapter:
         dvo2_60 = e14.get('dvo2_60s_mlkgmin')
         t_half_vco2 = e14.get('t_half_vco2_s'); t_half_ve = e14.get('t_half_ve_s')
         pct_rec_60 = e14.get('pct_recovered_60s'); pct_rec_120 = e14.get('pct_recovered_120s')
-        
+
         # E16 — Zones
         e16 = g('_e16_raw',{})
         zones_data = e16.get('zones',{})
@@ -3487,7 +3485,7 @@ class ReportAdapter:
         aer_reserve = e16.get('aerobic_reserve_pct')
         thr_gap = e16.get('threshold_gap_bpm')
         thr_gap_pct = e16.get('threshold_gap_pct_hrmax')
-        
+
         # E17 — Gas exchange
         e17 = g('_e17_raw',{})
         vdvt_rest = e17.get('vdvt_rest'); vdvt_peak = e17.get('vdvt_at_peak')
@@ -3495,14 +3493,14 @@ class ReportAdapter:
         petco2_rest = e17.get('petco2_rest'); petco2_vt1 = e17.get('petco2_at_vt1')
         petco2_peak = e17.get('petco2_at_peak'); petco2_pattern = e17.get('petco2_pattern','?')
         peto2_nadir = e17.get('peto2_nadir')
-        
+
         # E19 — Validation
         e19 = g('_e19_raw',{})
         val_score = e19.get('validity_score',0); val_grade = e19.get('validity_grade','?')
         con_score = e19.get('concordance_score',0); con_grade = e19.get('concordance_grade','?')
         ta = e19.get('temporal_alignment',{})
         ta_vt1 = ta.get('VT1',{}); ta_vt2 = ta.get('VT2',{})
-        
+
         # Sport context
         _is_sport = False
         try:
@@ -3510,11 +3508,11 @@ class ReportAdapter:
             _bvo2 = float(vo2_rel) if vo2_rel else 0
             _is_sport = _bvo2 >= 40 and _bv < 32
         except: pass
-        
+
         # =====================================================================
         # BUILD HTML
         # =====================================================================
-        
+
         h = f'''<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CPET Report — {esc(name)}</title>
 <style>
@@ -3559,20 +3557,20 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         # ═══════════════════════════════════════════════════════════════
         try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
         except: pctile_val = 50
-        
+
         # ── UNIFIED PROFILE SCORING (computed in build_canon_table) ──
         _profile_pro = ct.get('_profile') or compute_profile_scores(ct)  # fallback
         _overall_score = _profile_pro['overall']
         _overall_grade = _profile_pro['grade_letter']
         _hrr_gauge_score = _profile_pro['gauge_scores']['recovery']
         pctile_val = _profile_pro['pctile_val']
-        
+
         # HRR label for gauge subtitle
         try:
             _hrr_val = float(hrr1) if hrr1 else 0
             _hrr_lbl = f'HRR {_hrr_val:.0f}' if _hrr_val > 0 else 'b/d'
         except: _hrr_lbl = 'b/d'
-        
+
         _gauge_vo2_sub = _profile_pro.get('sport_class', '')
         _gauge_val_sub = str(val_grade)
         _gauge_hrr_sub = _hrr_lbl
@@ -3586,7 +3584,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
       {gauge_svg(min(100, max(0, _hrr_gauge_score)), 'Recovery', subtitle=_gauge_hrr_sub)}
       {gauge_svg(min(100, max(0, _overall_score)), 'Profil', subtitle=_gauge_overall_sub)}</div>
     <div style="flex:1;min-width:260px;">'''
-        
+
         # VO2 gauge bar
         h += f'''<div style="font-size:11px;font-weight:600;color:#475569;margin-bottom:4px;">VO₂{"max" if str(vo2_det)=="VO2max" else "peak"} — {"Norma sportowa" if _is_sport else "Norma populacyjna"}</div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
@@ -3606,20 +3604,26 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
       <div style="font-size:11px;color:#475569;">
         Percentyl: ~{_n(vo2_pctile,'.0f','?')} | {_n(vo2_pct_pred,'.0f','?')}% predicted | Sportowy: <b>{esc(vo2_class_sport)}</b>
       </div>'''
-        
+
         # Maximality criteria
         h += '<div class="sub-header">Kryteria wysiłku maksymalnego</div>'
-        rer_ok = rer_peak and float(rer_peak) >= 1.10
-        hr_ok = hr_pct_pred and float(hr_pct_pred) >= 85
+        try:
+            rer_ok = rer_peak and str(rer_peak) not in ('-','[BRAK]','None','') and float(rer_peak) >= 1.10
+        except (ValueError, TypeError):
+            rer_ok = False
+        try:
+            hr_ok = hr_pct_pred and str(hr_pct_pred) not in ('-','[BRAK]','None','') and float(hr_pct_pred) >= 85
+        except (ValueError, TypeError):
+            hr_ok = False
         h += f'<div style="font-size:11px;color:#334155;line-height:1.8;">'
         h += f'{"✅" if rer_ok else "❌"} RER {_n(rer_peak,".2f")} {"≥" if rer_ok else "<"}1.10 &nbsp; '
         h += f'{"✅" if hr_ok else "❌"} HR {_n(hr_pct_pred,".0f")}% pred ({_n(hr_peak,".0f")}/{_n(hr_pred,".0f")}) &nbsp; '
         h += f'{"✅" if plateau else "❌"} Plateau VO₂ {"wykryte" if plateau else "brak"}'
         h += '</div>'
-        
+
         # Auto observations
         h += '<div class="sub-header">Obserwacje kluczowe</div><div style="font-size:12px;line-height:1.8;">'
-        
+
         # Generate observations from data — with velocity context
         try:
             _vt1p = float(vt1_pct) if vt1_pct else 0
@@ -3636,7 +3640,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             _lvl = _pc.get('level_by_speed', '')
             _lvl_pct = _pc.get('level_by_pct_vo2', '')
             _lvl_match = _pc.get('levels_match', True)
-            
+
             # ── VT1 with speed context (uses unified profile flags) ──
             if _vt1p > 0:
                 _vt1_t = f'VT1 przy {_vt1p:.0f}% VO\u2082max'
@@ -3644,7 +3648,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     _vt1_t += f' / {_v_vt1:.1f} km/h'
                 if _mas_pct_vt1 and 'MAS_external' in _mas_src:
                     _vt1_t += f' ({_mas_pct_vt1:.0f}% MAS)'
-                
+
                 # Check ceiling trap from unified scoring
                 if _profile_pro['flags']['vt1_ceiling_trap']:
                     _sport_ctx_pro = _profile_pro.get('sport_class', '')
@@ -3684,7 +3688,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     else:
                         _vt1_t += ' \u2014 potencja\u0142 na popraw\u0119 bazy tlenowej.'
                         h += obs_bullet(_vt1_t, 'info')
-            
+
             # ── VT2 with speed context ──
             if _vt2p > 0:
                 _vt2_t = f'VT2 przy {_vt2p:.0f}% VO\u2082max'
@@ -3692,12 +3696,12 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     _vt2_t += f' / {_v_vt2:.1f} km/h'
                 if _mas_pct_vt2 and 'MAS_external' in _mas_src:
                     _vt2_t += f' ({_mas_pct_vt2:.0f}% MAS)'
-                
+
                 if _lvl:
                     _vt2_t += f' \u2014 poziom <b>{_lvl}</b>'
                     if not _lvl_match and _lvl_pct:
                         _vt2_t += f' (uwaga: %VO\u2082max sugeruje {_lvl_pct})'
-                    
+
                     if _vt2p >= 88 and _lvl in ('Sedentary', 'Recreational'):
                         _vt2_t += '. Wysoki pr\u00f3g wzgl\u0119dny ale niska pr\u0119dko\u015b\u0107 \u2192 niski VO\u2082max.'
                         h += obs_bullet(_vt2_t, 'warning')
@@ -3719,13 +3723,13 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     else:
                         _vt2_t += ' \u2014 przestrze\u0144 do poprawy treningu progowego.'
                         h += obs_bullet(_vt2_t, 'info')
-            
+
             # ── Gap ──
             if _gap >= 25:
                 h += obs_bullet(f'Gap VT2-VT1: {_gap:.0f} bpm \u2014 <b>du\u017ca przestrze\u0144</b> do treningu tempo/threshold.', 'positive')
             elif _gap >= 15:
                 h += obs_bullet(f'Gap VT2-VT1: {_gap:.0f} bpm \u2014 umiarkowana przestrze\u0144 tempo.', 'info')
-            
+
             # ── VE/VCO2 slope ──
             if _slp < 25 and _slp > 0:
                 h += obs_bullet(f'VE/VCO\u2082 slope {_slp:.1f} \u2014 <b>doskona\u0142a efektywno\u015b\u0107 wentylacyjna</b>.', 'positive')
@@ -3733,19 +3737,19 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 h += obs_bullet(f'VE/VCO\u2082 slope {_slp:.1f} \u2014 dobra efektywno\u015b\u0107 wentylacyjna.', 'positive')
             elif _slp < 34:
                 h += obs_bullet(f'VE/VCO\u2082 slope {_slp:.1f} \u2014 umiarkowana efektywno\u015b\u0107 wentylacyjna.', 'warning')
-            
+
             # ── Breathing flags ──
             if _is_sport and e07_flags:
                 flags_str = ', '.join(e07_flags) if isinstance(e07_flags, list) else str(e07_flags)
                 h += obs_bullet(f'Flagi oddechowe [{flags_str}] \u2014 przy VO\u2082max {_vo2v:.0f} ml/kg/min reinterpretowane jako <b>adaptacje sportowe</b>.', 'sport')
-            
+
             # ── FATmax ──
             if fatmax:
                 h += obs_bullet(f'FATmax {float(fatmax):.2f} g/min przy HR {_n(fatmax_hr,".0f")} ({_n(fatmax_pct_vo2,".0f")}% VO\u2082) \u2014 strefa HR {_n(fatmax_zone_lo,".0f")}-{_n(fatmax_zone_hi,".0f")} bpm.', 'info')
         except: pass
-        
+
         h += '</div>'
-        
+
         # Training recommendation — uses profile scoring + E20 sport-specific session
         h += '<div class="sub-header">Rekomendacja treningowa</div>'
         try:
@@ -3753,7 +3757,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             _limiter_pro = _profile_pro.get('limiter', {})
             _limiter_key_pro = _profile_pro.get('limiter_key', '')
             _super_pro = _profile_pro.get('superpower', {})
-            
+
             # E20 GameChanger — same logic as LITE
             _lim_key_map_pro = {
                 'vo2max': 'HIGH_THRESHOLDS_LOW_CEILING',
@@ -3781,7 +3785,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 _gc_pro_session = _ss('KEY_1', _e20s, _sc_r, _lt, modality=_e20m)
             except Exception:
                 _gc_pro_session = _limiter_pro.get('tip', '')
-            
+
             # Display: Priority ranking (compact) + GameChanger
             _prio_pro = _profile_pro.get('priority_ranking', [])
             if _prio_pro:
@@ -3803,19 +3807,26 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 h += f'<b>🎯 GAME CHANGER — trening tygodnia</b>{"  <span style=\"font-size:10px;color:#a16207;\">(✏️ ręcznie)</span>" if _gc_is_manual else ""}<br>'
                 h += f'<span style="color:#334155;">{_gc_display}</span></div>'
         except: pass
-        
+
         h += '</div></div></div>'
-        
+
         # ═══════════════════════════════════════════════════════════════
         # II. PROGI + STREFY
         # ═══════════════════════════════════════════════════════════════
-        
+
         # VT cards
         def vt_card(label, pct_vo2, hr, time_s, speed, rer_v, vo2_abs_v, hr_pct_mx, conf, pct_mas=None, col='#16a34a'):
             pct_val = _n(pct_vo2, '.0f', '?') if pct_vo2 else '?'
-            bar_w = min(100, max(0, float(pct_vo2) if pct_vo2 else 0))
-            conf_lbl = 'Potwierdzone' if float(conf or 0)>=0.8 else ('Umiarkowane' if float(conf or 0)>=0.5 else 'Niepewne')
-            conf_col = '#16a34a' if float(conf or 0)>=0.8 else ('#d97706' if float(conf or 0)>=0.5 else '#dc2626')
+            try:
+                bar_w = min(100, max(0, float(pct_vo2))) if pct_vo2 and str(pct_vo2) not in ('-','[BRAK]','None','') else 0
+            except (ValueError, TypeError):
+                bar_w = 0
+            try:
+                _conf_f = float(conf) if conf and str(conf) not in ('-','[BRAK]','None','') else 0
+            except (ValueError, TypeError):
+                _conf_f = 0
+            conf_lbl = 'Potwierdzone' if _conf_f>=0.8 else ('Umiarkowane' if _conf_f>=0.5 else 'Niepewne')
+            conf_col = '#16a34a' if _conf_f>=0.8 else ('#d97706' if _conf_f>=0.5 else '#dc2626')
             is_vt2 = 'VT2' in label
             return f'''<div style="flex:1;min-width:200px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;">
   <div style="font-size:12px;font-weight:700;color:#475569;">{label}</div>
@@ -3825,8 +3836,8 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
   <div style="font-size:10px;color:#94a3b8;margin-top:2px;">VO₂ {_n(vo2_abs_v,'.0f','-')} ml/min | RER {_n(rer_v,'.2f','-')}{f' | {_n(speed,".1f")} km/h' + (f' ({pct_mas:.0f}% MAS)' if pct_mas else '') if speed else ''}</div>
   <div style="margin-top:4px;">{badge(conf_lbl, conf_col)}</div>
 </div>'''
-        
-        
+
+
         # ── Performance Context for VT cards ────────────────────
         _pc = ct.get('_performance_context', {})
         _vt1_pct_mas = _pc.get('vt1_pct_vref') if _pc.get('executed') else None
@@ -3849,7 +3860,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             _mss_v = _pc.get('mss_external_m_s')
             _asr_v = _pc.get('asr_kmh')
             _pc_flags = _pc.get('flags', [])
-            
+
             _ctx_parts = []
             if _lvl_s:
                 _ctx_parts.append(f'Klasyfikacja: <b>{_lvl_s}</b>')
@@ -3861,17 +3872,17 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     _ctx_parts.append(f'MSS: {_mss_v:.1f} m/s')
                     if _asr_v:
                         _ctx_parts.append(f'ASR: {_asr_v:.1f} km/h')
-            
+
             if _ctx_parts:
                 h += '<div style="margin-top:8px;padding:8px 12px;background:#f0f9ff;border-radius:6px;font-size:11px;color:#475569;border-left:3px solid #3b82f6;">' + '  |  '.join(_ctx_parts) + '</div>'
-            
+
             for _fl in _pc_flags:
                 h += f'<div style="margin-top:3px;padding:3px 12px;font-size:10px;color:#d97706;">\u26a0\ufe0f {_fl}</div>'
 
                 # Zones table
         zone_colors = ['#22c55e','#84cc16','#eab308','#f97316','#ef4444']
         zone_names_pl = ['Z1 Regeneracja','Z2 Baza tlenowa','Z3 Tempo','Z4 Próg','Z5 VO₂max']
-        
+
         h += '<table class="ztable"><tr><th>Strefa</th><th>HR (bpm)</th><th>%HRmax</th><th>Tempo</th><th>RPE</th><th>Opis</th></tr>'
         for i, (zname, zcol) in enumerate(zip(zone_names_pl, zone_colors)):
             zkey = f'z{i+1}'
@@ -3887,27 +3898,27 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             h += f'<td>{_n(spd_lo,".1f","")}-{_n(spd_hi,".1f","")} km/h</td>'
             h += f'<td>{rpe}</td><td style="font-size:10px;color:#64748b;">{desc}</td></tr>'
         h += '</table>'
-        
+
         # 3-zone model
         if three_zone:
             h += '<div style="margin-top:6px;font-size:10px;color:#64748b;">Model 3-strefowy: '
             for zk, zv in three_zone.items():
                 h += f'{zv.get("label","")} ({zv.get("hr_low","")}-{zv.get("hr_high","")}) | '
             h += '</div>'
-        
+
         extras = []
         if aer_reserve: extras.append(f'Rezerwa tlenowa: {_n(aer_reserve,".0f")}%')
         if thr_gap: extras.append(f'Gap VT2-VT1: {_n(thr_gap,".0f")} bpm ({_n(thr_gap_pct,".0f")}% HRmax)')
         if extras:
             h += f'<div style="margin-top:6px;font-size:11px;color:#475569;font-weight:600;">{"  |  ".join(extras)}</div>'
-        
+
         h += '</div></div>'
-        
+
         # ═══════════════════════════════════════════════════════════════
         # III. PROFIL FIZJOLOGICZNY — 4 PANELE
         # ═══════════════════════════════════════════════════════════════
         h += f'<div class="section">{section_title("Profil fizjologiczny", "III")}'
-        
+
         # --- PANEL A: WYDOLNOŚĆ ---
         pa = ''
         pa += row_item('VO₂max', f'{_n(vo2_rel)} ml/kg/min', vo2_class, f'{_n(vo2_abs,".2f")} L/min | {_n(vo2_pct_pred,".0f")}% pred. | ~{_n(vo2_pctile,".0f")} percentyl')
@@ -3921,7 +3932,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         pa += row_item('Nadir / @VT1', f'{_n(ve_vco2_nadir)} / {_n(ve_vco2_at_vt1)}', '', '')
         pa += row_item('RER peak', _n(rer_peak,'.3f'), rer_class, f'{"Plateau VO₂ ✓" if plateau else ""} | {rer_desc}')
         pa += row_item('VE peak', f'{_n(ve_peak,".1f")} L/min', '', '')
-        
+
         # --- PANEL B: SERCE & RECOVERY ---
         pb = ''
         pb += row_item('O₂-pulse peak', f'{_n(o2p_peak)} ml/beat', o2p_traj, f'{_n(o2p_pct,".0f")}% pred. | Est. SV ~{_n(sv_est,".0f")} ml')
@@ -3930,14 +3941,14 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         pb += row_item('HR-VO₂ slope', f'{_n(hr_vo2_slope)} bpm/L', 'SPORT' if slope_class in ('VERY_LOW','LOW_HIGH_SV') and _is_sport else slope_class, f'R²={_n(e13.get("hr_vo2_r2"),".3f")}')
         pb += row_item('Breakpoint HR-VO₂', f'{_fmt_dur(bp_time_e13)} ({_n(bp_pct_e13,".0f")}%)', bp_vs_vt2_e13, f'CV coupling: {"łagodna anomalia" if cv_coupling=="MILD_ABNORMALITY" else ("doskonały" if cv_coupling=="EXCELLENT" else cv_coupling)}')
         pb += row_item('HRmax', f'{_n(hr_peak,".0f")} bpm', '', f'{_n(hr_pct_pred,".0f")}% pred. ({_n(hr_pred,".0f")})')
-        
+
         pb += '<div class="sub-header">RECOVERY</div>'
         pb += row_item('HRR 1min', f'{_n(hrr1,".0f")} bpm', (str(hrr1_class or hrr1_class_e15)).upper(), hrr1_desc_e15)
         pb += row_item('HRR 3min', f'{_n(hrr3,".0f")} bpm', str(hrr3_class).upper(), '')
         pb += row_item('T½ VO₂', f'{_n(t_half_vo2,".0f")}s', rec_class, f'τ={_n(tau_vo2,".0f")}s (R²={_n(tau_r2,".2f")}) | MRT={_n(mrt,".0f")}s' if tau_vo2 else rec_desc)
         pb += row_item('T½ VCO₂ / VE', f'{_n(t_half_vco2,".0f")}s / {_n(t_half_ve,".0f")}s', '', f'VO₂DR {_n(vo2dr,".1f")}s' if vo2dr else '')
         pb += row_item('Recovery 60s/120s', f'{_n(pct_rec_60,".0f")}% / {_n(pct_rec_120,".0f")}%', '', f'ΔVO₂ 60s: {_n(dvo2_60,".1f")} ml/kg/min')
-        
+
         # --- PANEL C: ODDYCHANIE ---
         pc = ''
         bp_assess = 'SPORT' if bp_pattern in ('DYSFUNCTIONAL_BPD',) and _is_sport else bp_pattern
@@ -3946,20 +3957,20 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         pc += row_item('VT rest/VT1/VT2/peak', f'{_n(e07.get("vt_rest_L"),".2f")} / {_n(vt_vt1,".2f")} / {_n(vt_vt2,".2f")} / {_n(vt_peak,".2f")} L', '', '')
         if vt_plat_t:
             pc += row_item('Plateau VT', f't={_fmt_dur(vt_plat_t)} ({_n(vt_plat_pct,".0f")}%)', e07.get('vt_plateau_vs_vt2',''), '')
-        
+
         vdvt_assess = 'SPORT' if vdvt_pattern in ('PARADOXICAL_RISE',) and _is_sport else vdvt_pattern
         pc += row_item('VD/VT', f'{_n(vdvt_rest,".2f")}→{_n(vdvt_peak,".2f")}', vdvt_assess, '')
         pc += row_item('PetCO₂', f'rest {_n(petco2_rest,".0f")} → VT1 {_n(petco2_vt1,".0f")} → peak {_n(petco2_peak,".0f")}', petco2_pattern, '')
         if peto2_nadir:
             pc += row_item('PetO₂ nadir', f'{_n(peto2_nadir,".0f")} mmHg', '', '')
-        
+
         br_pct = g('BR_pct')
         pc += row_item('BR', f'{_n(br_pct,".0f")}%' if br_pct else '-', '', 'Brak MVV' if not br_pct else '')
-        
+
         if e07_flags:
             flags_str = ', '.join(e07_flags) if isinstance(e07_flags, list) else str(e07_flags)
             pc += f'<div style="font-size:10px;color:#64748b;margin-top:4px;">Flagi: {flags_str}</div>'
-        
+
         # --- PANEL D: PALIWO ---
         pd_html = ''
         pd_html += '<div class="sub-header">FATmax</div>'
@@ -3971,7 +3982,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         pd_html += row_item('Substrat @VT2', f'FAT {_n(fat_vt2_pct,".0f")}% / CHO {_n(cho_vt2_pct,".0f")}%' if fat_vt2_pct else '-', '', '')
         if total_kcal:
             pd_html += row_item('Kalorie total', f'{_n(total_kcal,".0f")} kcal', '', f'FAT {_n(total_fat,".0f")} + CHO {_n(total_cho,".0f")} kcal')
-        
+
         # Zone substrate table
         if zone_sub:
             pd_html += '<div class="sub-header">Substrat per strefa</div>'
@@ -3982,7 +3993,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     note = f' *' if zs.get('note') else ''
                     pd_html += f'<tr><td>{zk.upper()}</td><td>{_n(zs.get("fat_gh"),".0f","-")}</td><td>{_n(zs.get("cho_gh"),".0f","-")}</td><td>{_n(zs.get("fat_pct"),".0f","-")}%</td><td>{_n(zs.get("kcal_h"),".0f","-")}{note}</td></tr>'
             pd_html += '</table>'
-        
+
         # Lactate
         pd_html += '<div class="sub-header">Laktat</div>'
         if la_peak:
@@ -3991,7 +4002,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             pd_html += row_item('LT2', f'HR {_n(lt2_hr,".0f")} | {_fmt_dur(lt2_time)}' if lt2_hr else '-', '', lt2_method)
         else:
             pd_html += row_item('Laktat', 'Brak danych', 'NO_DATA', '')
-        
+
         h += f'''<div class="flex-row">
   {panel_card('🫁 Wydolność i Efektywność', '', pa)}
   {panel_card('❤️ Serce i Recovery', '', pb)}
@@ -4000,7 +4011,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
   {panel_card('💨 Oddychanie', '', pc)}
   {panel_card('⛽ Paliwo i Metabolizm', '', pd_html)}
 </div>'''
-        
+
         # --- EFFICIENCY / ECONOMY (E06) — test_device determines RE vs GAIN ---
         if e06.get('status') == 'OK':
             pe = ''
@@ -4026,14 +4037,14 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             if lin_break:
                 pe += row_item('Linearity break', _fmt_dur(lin_break), '', f'@ {_n(e06.get("linearity_break_load"),".1f")} {"km/h" if _show_re else "W"}')
             h += f'<div style="margin-top:12px;">{panel_card("🏃 Efektywność" if _show_re else "⚡ Efektywność", "", pe)}</div>'
-        
+
         h += '</div>'  # end section III
 
         # ═══════════════════════════════════════════════════════════════
         # IV. WALIDACJA KRZYŻOWA
         # ═══════════════════════════════════════════════════════════════
         h += f'<div class="section"><div class="card">{section_title("Walidacja krzyżowa", "IV")}'
-        
+
         # Concordance checks
         cc = e19.get('concordance_checks',[])
         if cc:
@@ -4047,7 +4058,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 icon = '✓' if col == '#16a34a' else ('~' if col == '#d97706' else '✗')
                 checks_html += f'<span style="display:inline-block;margin:2px 4px;padding:3px 8px;border-radius:4px;font-size:11px;background:{col}14;color:{col};font-weight:600;">{icon} {name_c}: {status}</span>'
             h += f'<div style="margin-bottom:8px;">{checks_html}</div>'
-        
+
         # Temporal alignment
         for bp_name, bp_data in ta.items():
             if not bp_data: continue
@@ -4061,7 +4072,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             if outlier:
                 h += f' <span style="color:#dc2626;font-size:10px;">(outlier: {outlier})</span>'
             h += '</div>'
-        
+
         # Validity criteria
         vc19 = e19.get('validity_criteria',{})
         if vc19:
@@ -4073,7 +4084,7 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                 col = '#16a34a' if s in ('EXCELLENT','YES','OPTIMAL','GOOD','BOTH') else ('#d97706' if s in ('FAIR','VT1_ONLY','ACCEPTABLE') else ('#dc2626' if s in ('NO','POOR','FAIL','INSUFFICIENT') else '#94a3b8'))
                 vc_chips += f'<span style="display:inline-block;margin:1px 3px;padding:2px 6px;border-radius:3px;font-size:10px;background:{col}14;color:{col};font-weight:600;">{k}: {s} +{p}</span>'
             h += f'<div style="margin-top:6px;"><span style="font-size:10px;color:#64748b;">Ważność {val_score}/100 ({val_grade}): </span>{vc_chips}</div>'
-        
+
         h += '</div></div>'
 
         # ═══════════════════════════════════════════════════════════════
@@ -4084,14 +4095,14 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             h += row_item('SmO₂ rest→min→recovery', f'{_n(smo2_rest,".0f")}→{_n(smo2_min,".0f")}→{_n(smo2_recov,".0f")}%', e12_quality, f'Desaturacja: {_n(desat_abs,".0f")}% abs ({_n(desat_pct,".0f")}% rel.)')
             h += row_item('SmO₂ @VT1 / @VT2', f'{_n(smo2_vt1,".0f")}% / {_n(smo2_vt2,".0f")}%', '', f'@peak: {_n(smo2_peak_val,".0f")}%')
             h += row_item('Half Recovery Time', f'{_n(hrt_s,".1f")}s', '', f'Reox rate: {_n(reox_rate,".3f")} %/s | Overshoot: +{_n(overshoot,".0f")}%')
-            
+
             if bp1_t:
                 bp1_ctx = f'{_n(bp1_vs_vt1,".0f")}s po VT1' if bp1_vs_vt1 and float(bp1_vs_vt1 or 0)>0 else f'{_n(abs(float(bp1_vs_vt1 or 0)),".0f")}s przed VT1' if bp1_vs_vt1 else ''
                 h += row_item('NIRS BP1', f'{_fmt_dur(bp1_t)}', '', f'SmO₂: {_n(bp1_smo2,".0f")}% | {bp1_ctx}')
             if bp2_t:
                 bp2_ctx = f'{_n(bp2_vs_vt2,".0f")}s po VT2' if bp2_vs_vt2 and float(bp2_vs_vt2 or 0)>0 else f'{_n(abs(float(bp2_vs_vt2 or 0)),".0f")}s przed VT2' if bp2_vs_vt2 else ''
                 h += row_item('NIRS BP2', f'{_fmt_dur(bp2_t)}', '', f'SmO₂: {_n(bp2_smo2,".0f")}% | {bp2_ctx}')
-            
+
             if e12_flags:
                 flags_str = ', '.join(e12_flags) if isinstance(e12_flags, list) else str(e12_flags)
                 h += f'<div style="font-size:10px;color:#64748b;margin-top:4px;">Flagi: {flags_str}</div>'
@@ -4120,14 +4131,14 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
                     _ranges = [(0,35,'UNTRAINED'),(35,45,'RECREATIONAL'),(45,53,'TRAINED'),(53,58,'COMPETITIVE'),(58,65,'SUB_ELITE'),(65,999,'ELITE')]
                 else:
                     _ranges = [(0,40,'UNTRAINED'),(40,50,'RECREATIONAL'),(50,58,'TRAINED'),(58,65,'COMPETITIVE'),(65,72,'SUB_ELITE'),(72,999,'ELITE')]
-            
+
             # Build sport_refs in descending order (elite first)
             sport_refs = []
             for lo, hi, cls in reversed(_ranges):
                 lbl = _sport_labels.get(cls, cls)
                 hi_disp = hi if hi < 900 else f'{lo}+'
                 sport_refs.append((lbl, lo, min(hi, lo + 15)))
-            
+
             h += '<div style="display:flex;gap:4px;align-items:flex-end;height:120px;margin-bottom:6px;">'
             for lbl, lo, hi in sport_refs:
                 mid = (lo + hi) / 2
@@ -4157,20 +4168,20 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             h += '<span style="font-size:18px;color:#94a3b8;">▸</span></div>'
             h += '<div class="proto-body" style="display:none;">' + proto_tbl + '</div>'
             h += '</div></div>'
-        
+
         charts_html = ReportAdapter._render_charts_html(ct)
         h += f'<div class="section">{section_title("Wykresy", "VII")}{charts_html}</div>'
-        
+
         # Footer
         h += '<div style="padding:14px;font-size:10px;color:#9ca3af;text-align:center;">CPET Report v4.0 | Pełna analiza fizjologiczna | Automatycznie generowany</div>'
         h += '</div></body></html>'
-        
+
         return h
 
     @staticmethod
     def render_lite_html_report(ct):
         """
-        LITE report — for athletes/clients. 
+        LITE report — for athletes/clients.
         Simplified, visual, actionable. No raw diagnostic data.
         Uses same canon_table (ct) as PRO report.
         """
@@ -4225,11 +4236,11 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         _device_pl = {'treadmill': 'Bieżnia', 'bike_erg': 'Rower', 'rowing_erg': 'Ergometr wiośl.'}.get(_td, 'Bieżnia' if modality == 'run' else 'Rower')
         _sport_map = {'crossfit': 'CrossFit', 'hyrox': 'HYROX', 'triathlon': 'Triathlon', 'mma': 'MMA', 'swimming': 'Pływanie', 'soccer': 'Piłka nożna', 'xc_ski': 'Biegi narc.', 'rowing': 'Wioślarstwo'}
         _sport_tag = f' • {_sport_map[modality]}' if modality in _sport_map else ''
-        
+
         e00 = g('_e00_raw',{})
         t_stop = e00.get('t_stop',0)
         dur_str = _fmt_dur(t_stop)
-        
+
         vo2_rel = g('VO2max_ml_kg_min')
         vo2_abs = g('VO2max_L_min') or g('VO2max_abs_Lmin')
         e15 = g('_e15_raw',{})
@@ -4240,16 +4251,16 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         vo2_pct_pred = g('VO2_pct_predicted')
         hr_peak = g('HR_peak')
         rer_peak = g('RER_peak')
-        
+
         vt1_hr = g('VT1_HR_bpm'); vt1_time = g('VT1_Time_s'); vt1_pct = g('VT1_pct_VO2peak')
         vt2_hr = g('VT2_HR_bpm'); vt2_time = g('VT2_Time_s'); vt2_pct = g('VT2_pct_VO2peak')
         vt1_speed = g('VT1_Speed'); vt2_speed = g('VT2_Speed')
-        
+
         e16 = g('_e16_raw',{})
         zones_data = e16.get('zones',{})
         thr_gap = e16.get('threshold_gap_bpm')
         aer_reserve = e16.get('aerobic_reserve_pct')
-        
+
         e10 = g('_e10_raw',{})
         fatmax = e10.get('mfo_gmin'); fatmax_hr = e10.get('fatmax_hr')
         fatmax_pct_vo2 = e10.get('fatmax_pct_vo2peak')
@@ -4257,42 +4268,42 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         cop_pct_vo2 = g('COP_pct_vo2peak') or e10.get('cop_pct_vo2peak')
         cop_hr = e10.get('cop_hr')
         zone_sub = e10.get('zone_substrate', {})
-        
+
         e08 = g('_e08_raw',{})
         hrr1 = e08.get('hrr_1min')
         hrr3 = e08.get('hrr_3min')
-        
+
         e03 = g('_e03_raw',{})
         ve_vco2_slope = g('VE_VCO2_slope') or e03.get('slope_to_vt2')
         ve_vco2_nadir = g('VE_VCO2_nadir')
-        
+
         e06 = g('_e06_raw',{})
         gain_z = e06.get('gain_z_score')
         gain_full = g('GAIN_full')
         re_mlkgkm = g('RE_mlkgkm')
-        
+
         e05 = g('_e05_raw',{})
         o2p_pct = e05.get('pct_predicted_friend')
         o2p_trajectory = g('O2pulse_trajectory')
         o2p_ff = g('O2pulse_ff')
-        
+
         e07 = g('_e07_raw',{})
         bf_peak = e07.get('bf_peak') if e07 else None
         breathing_strategy = e07.get('strategy','') if e07 else ''
         breathing_flags = e07.get('flags',[]) if e07 else []
-        
+
         _pc = ct.get('_performance_context', {})
-        
+
         try: pctile_val = float(vo2_pctile) if vo2_pctile else 50
         except: pctile_val = 50
-        
+
         # =====================================================================
         # UNIFIED PROFILE SCORING (computed in build_canon_table)
         # =====================================================================
         def _sf(val, default=None):
             try: return float(val) if val not in (None, '', '-', '[BRAK]', 'None', 'nan') else default
             except: return default
-        
+
         _profile = ct.get('_profile') or compute_profile_scores(ct)  # fallback if not pre-computed
         _cat = _profile['categories']
         _overall = _profile['overall']
@@ -4307,11 +4318,11 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         _vt2_score = _profile['gauge_scores']['vt2']
         _vent_score = _profile['gauge_scores']['ventilation']
         _econ_score = _profile['gauge_scores']['economy']
-        
+
         # =====================================================================
         # BUILD HTML
         # =====================================================================
-        
+
         h = f'''<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CPET Report LITE — {esc(name)}</title>
 <style>
@@ -4382,26 +4393,26 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
         # ─── 2. PROFIL WYDOLNOŚCI — kompaktowa tabela priorytetów ───
         _sport_demands = _profile.get('sport_demands', {})
-        
+
         # Sport label for header
         _sp_name = (ct.get('sport','') or ct.get('_sport','') or ct.get('_cfg_sport','') or ct.get('_prot_modality','') or ct.get('modality','')).upper()
         _sp_icon_map = {'RUN':'\U0001f3c3','HYROX':'\U0001f3cb\ufe0f','BIKE':'\U0001f6b4','TRIATHLON':'\U0001f3ca','CROSSFIT':'\U0001f4aa','MMA':'\U0001f94a','SOCCER':'\u26bd','SWIMMING':'\U0001f3ca','ROWING':'\U0001f6a3','XC_SKI':'\u26f7\ufe0f'}
         _sp_icon = _sp_icon_map.get(_sp_name, '\U0001f3af')
         _sp_lbl_map = {'RUN':'biegu','HYROX':'HYROX','BIKE':'kolarstwa','TRIATHLON':'triathlonu','CROSSFIT':'CrossFit','MMA':'MMA','SOCCER':'pi\u0142ki no\u017cnej','SWIMMING':'p\u0142ywania','ROWING':'wio\u015blarstwa','XC_SKI':'narciarstwa biegowego'}
         _sp_lbl = _sp_lbl_map.get(_sp_name, _sp_name)
-        
+
         _prio = _profile.get('priority_ranking', [])
-        
+
         h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\U0001f4ca</span>Profil wydolno\u015bci <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">{_sp_icon} {_sp_lbl}</span></div>'''
-        
+
         if _prio:
             def _pc(sc):
                 if sc >= 85: return '#059669'
                 if sc >= 70: return '#0d9488'
                 if sc >= 55: return '#d97706'
                 return '#dc2626'
-            
+
             def _pb(idx, sc):
                 if idx < 3 and sc < 75:
                     if idx == 0: return '\U0001f534 PRIORYTET #1', '#dc2626'
@@ -4410,13 +4421,13 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 if sc >= 90: return '\U0001f7e2 ATUT', '#059669'
                 if sc < 55: return '\U0001f7e0 DO POPRAWY', '#d97706'
                 return None, None
-            
+
             # Table header
             h += '''<div style="border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;margin-top:8px;">
   <div style="display:flex;padding:5px 10px;background:#f1f5f9;font-size:8px;font-weight:600;color:#94a3b8;gap:4px;align-items:center;">
     <span style="width:22px;">#</span><span style="width:22px;"></span><span style="flex:1;">Kategoria</span><span style="width:80px;">Wynik</span><span style="width:28px;"></span><span style="width:90px;"></span>
   </div>'''
-            
+
             for i, p in enumerate(_prio):
                 sc = p['score']
                 c = _pc(sc)
@@ -4425,7 +4436,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 is_p = i < 3 and sc < 75
                 is_a = sc >= 90
                 row_bg = '#fef2f208' if is_p else ('#ecfdf508' if is_a else ('#fff' if i % 2 == 0 else '#fafbfc'))
-                
+
                 h += f'<div style="display:flex;padding:6px 10px;align-items:center;gap:4px;background:{row_bg};border-top:1px solid #f1f5f9;">'
                 h += f'<span style="width:22px;font-size:10px;font-weight:700;color:{c};">{i+1}</span>'
                 h += f'<span style="width:22px;font-size:13px;">{p["icon"]}</span>'
@@ -4439,9 +4450,9 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 else:
                     h += '<span style="width:90px;"></span>'
                 h += '</div>'
-            
+
             h += '</div>'
-            
+
             # Footer legend
             h += '''<div style="margin-top:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:9px;color:#64748b;line-height:1.5;">
   <b>\u2191</b> Na g\u00f3rze = najwi\u0119kszy potencja\u0142 poprawy dla Twojego sportu \u00a0\u00b7\u00a0 <b>\u2193</b> Na dole = Twoja najmocniejsza strona<br>
@@ -4475,7 +4486,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 _gc_session = _scale_session('KEY_1', _e20_snap, _sc_rank, _lim_type, modality=_e20_mod)
             except Exception:
                 _gc_session = _limiter.get('tip', '')
-            
+
             if _gc_session:
                 # Manual override from config takes priority
                 _gc_display_lite = ct.get('_gc_manual') or _gc_session
@@ -4485,14 +4496,14 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
   <div style="font-size:12px;color:#334155;line-height:1.6;">{_gc_display_lite}</div>
   <div style="margin-top:6px;font-size:10px;color:#a16207;">Priorytet #1: {_limiter.get('label','')}</div>
 </div>'''
-        
+
         # Standalone manual GC when no auto limiter was detected
         if not (_limiter and _limiter.get('limiter_text')) and ct.get('_gc_manual'):
             h += f'''<div style="margin-top:14px;padding:14px 16px;background:linear-gradient(135deg,#fefce8,#fef9c3);border-radius:12px;border-left:4px solid #eab308;">
   <div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:6px;">🎯 GAME CHANGER — trening tygodnia  <span style='font-size:10px;'>(✏️ ręcznie)</span></div>
   <div style="font-size:12px;color:#334155;line-height:1.6;">{ct['_gc_manual']}</div>
 </div>'''
-        
+
         h += '</div>'
 
         # ─── 3. STREFY TRENINGOWE ───
@@ -4512,10 +4523,10 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             'Interwa\u0142y progowe, wy\u015bcigi 10km-HM',
             'Interwa\u0142y VO\u2082max, szybkie powt\u00f3rzenia'
         ]
-        
+
         h += '<div class="card">'
         h += '<div class="section-title"><span class="section-icon">\U0001f49a</span>Twoje strefy treningowe</div>'
-        
+
         # VT1/VT2 cards
         h += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
         if vt1_hr:
@@ -4525,14 +4536,14 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             _vt2_spd = f' | {_n(vt2_speed,".1f")} km/h' if vt2_speed else ''
             h += f'<div style="flex:1;min-width:180px;padding:12px;background:#fef2f2;border-radius:10px;border-left:4px solid #ef4444;"><div style="font-size:11px;color:#475569;font-weight:600;">2. pr\u00f3g wentylacyjny (VT2)</div><div style="font-size:22px;font-weight:700;color:#dc2626;">\u2764\ufe0f {_n(vt2_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt2_pct,".0f")}% VO\u2082max{_vt2_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Powy\u017cej tego \u2014 organizm nie nad\u0105\u017ca z usuwaniem mleczanu</div></div>'
         h += '</div>'
-        
+
         for i, (zname, zcol, zfeel, zuse) in enumerate(zip(zone_names, zone_colors, zone_feelings, zone_uses)):
             zkey = f'z{i+1}'
             zd = zones_data.get(zkey, {})
             hr_lo = zd.get('hr_low','?'); hr_hi = zd.get('hr_high','?')
             spd_lo = zd.get('speed_low',''); spd_hi = zd.get('speed_high','')
             spd_str = f' | {_n(spd_lo,".1f","")}-{_n(spd_hi,".1f","")} km/h' if spd_lo else ''
-            
+
             h += f'''<div style="display:flex;align-items:center;gap:12px;padding:10px;margin-bottom:6px;border-radius:10px;background:{'#fafafa' if i%2==0 else 'white'};">
   <div style="width:14px;height:14px;border-radius:50%;background:{zcol};flex-shrink:0;"></div>
   <div style="flex:1;">
@@ -4545,7 +4556,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
     <div style="font-size:10px;color:#94a3b8;">bpm{spd_str}</div>
   </div>
 </div>'''
-        
+
         h += '</div>'
 
         # ─── 4. METABOLIZM LIPIDÓW ───
@@ -4554,11 +4565,11 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 _fatmax_gh = float(fatmax) * 60 if fatmax else 0
             except:
                 _fatmax_gh = 0
-            
+
             # FATmax + Crossover summary row
             _cop_hr_s = f' | HR {int(cop_hr)} bpm' if cop_hr else ''
             _cop_txt = f'{_n(cop_pct_vo2,".0f")}% VO\u2082max{_cop_hr_s}' if cop_pct_vo2 else '\u2014'
-            
+
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\u26fd</span>Metabolizm lipid\u00f3w</div>
   <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
@@ -4574,12 +4585,12 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
       <div style="font-size:10px;color:#64748b;">Powy\u017cej tego \u2014 dominuje glikogen</div>
     </div>
   </div>'''
-            
+
             # Zone substrate table
             if zone_sub:
                 _zone_names = {'z1': 'Z1 Regeneracja', 'z2': 'Z2 Baza tlenowa', 'z3': 'Z3 Tempo', 'z4': 'Z4 Pr\u00f3g', 'z5': 'Z5 VO\u2082max'}
                 _zone_colors = {'z1': '#94a3b8', 'z2': '#3b82f6', 'z3': '#22c55e', 'z4': '#f97316', 'z5': '#ef4444'}
-                
+
                 h += '''<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;">
   <thead>
     <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
@@ -4591,7 +4602,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
     </tr>
   </thead>
   <tbody>'''
-                
+
                 for zk in ['z2', 'z3', 'z4', 'z5']:
                     zs = zone_sub.get(zk, {})
                     if zs:
@@ -4617,9 +4628,9 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
       </td>
       <td style="padding:8px 6px;text-align:center;font-weight:600;color:#334155;">{_kcal}</td>
     </tr>'''
-                
+
                 h += '</tbody></table>'
-            
+
             # Practical tip
             try:
                 _cho_z3 = float(zone_sub.get('z3', {}).get('cho_gh', 40)) if zone_sub else 40
@@ -4637,7 +4648,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         _econ_score = _econ_data.get('score', 0)
         _econ_lbl = _econ_data.get('label', 'Ekonomia ruchu')
         _econ_interp = _profile.get('interpretations', {}).get('economy', '')
-        
+
         if ct.get('test_device', 'treadmill') == 'treadmill' and re_mlkgkm:
             _re_display = f'{_n(re_mlkgkm, ".0f", "—")}'
             _re_unit = 'ml/kg/km'
@@ -4683,7 +4694,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         h += '<div class="card">'
         h += '<div class="section-title"><span class="section-icon">\U0001f4a1</span>Co oznaczaj\u0105 Twoje wyniki</div>'
         h += '<div style="font-size:13px;color:#334155;line-height:1.8;">'
-        
+
         # Unified interpretations from _profile (single source of truth)
         _interp_texts = _profile.get('interpretations', {})
         _interp_order = ['vo2max', 'thresholds', 'vt1', 'recovery', 'economy', 'ventilation', 'cardiac', 'substrate']
@@ -4695,7 +4706,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 _has_any = True
         if not _has_any:
             h += '<p>Brak wystarczaj\u0105cych danych do pe\u0142nej interpretacji.</p>'
-        
+
         h += '</div></div>'
 
         # ─── 5b. PROTOKÓŁ (zwijany) ───
@@ -4738,7 +4749,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         # ─── FOOTER ───
         h += '<div style="padding:16px;font-size:10px;color:#9ca3af;text-align:center;">CPET Report LITE v1.0 | Wygenerowano automatycznie | Szczeg\u00f3\u0142owy raport PRO dost\u0119pny na \u017cyczenie</div>'
         h += '</div></body></html>'
-        
+
         return h
 
     @staticmethod
