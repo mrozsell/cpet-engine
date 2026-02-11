@@ -1535,6 +1535,38 @@ class Engine_E02_Thresholds_v4:
                 cls._apply_metadata_fallback(result, df_ex, params,
                                              file_metadata, vt1, vt2)
 
+            # ── V5 FIX #8: Flat PetCO2 phenotype detection ─────────
+            # If PetCO2 range < 6 mmHg (RAW, not smoothed) → "hyper-efficient ventilator"
+            # VT2 detection unreliable, lower confidence
+            # Kowalczyk: 5.2 mmHg → TRUE positive
+            # Malesa: 8.4 mmHg → should NOT trigger (has clear VT2)
+            try:
+                pc_raw = 'petco2' if 'petco2' in df_ex.columns else 'PetCO2_mmHg'
+                if pc_raw in df_ex.columns:
+                    pc = pd.to_numeric(df_ex[pc_raw], errors='coerce').dropna()
+                    if len(pc) > 20:
+                        pc_range = pc.max() - pc.min()
+                        if pc_range < 6.0:
+                            result['flags'].append(
+                                f'PHENOTYPE_F_FLAT_PETCO2:range={pc_range:.1f}mmHg')
+                            if vt2.time_sec:
+                                vt2.confidence *= 0.85
+                                vt2.flags.append('VT2_FLAT_PETCO2_PENALTY')
+                                result['vt2_confidence'] = vt2.confidence
+            except Exception:
+                pass
+
+            # ── V5 FIX #9: RERmax submax test flag ─────────────────
+            try:
+                rer_col = 'rer_sm' if 'rer_sm' in df_ex.columns else 'rer'
+                if rer_col in df_ex.columns:
+                    rer_max = df_ex[rer_col].max()
+                    if rer_max < 1.10:
+                        result['flags'].append(
+                            f'SUBMAX_TEST:RERmax={rer_max:.3f}<1.10')
+            except Exception:
+                pass
+
             # Final status
             cls._set_status(result, vt1, vt2)
 
@@ -2348,7 +2380,14 @@ class Engine_E02_Thresholds_v4:
             # 3. Not too early penalty (segments below 45% VO2 are suspect)
             early_penalty = -15 if mid_vo2_pct < 45 else 0
 
-            total_score = dur_score + vo2_score + early_penalty
+            # V5 FIX #6: Short isocapnic at low VO2% → penalty
+            # Katarzyna Duszyńska case: 33s at 53% was false VT1 (laktat stable)
+            # Short (<40s) + low VO2% (<60%) = likely warmup regulation, not VT1
+            short_low_penalty = 0
+            if duration < 40 and mid_vo2_pct < 60:
+                short_low_penalty = -20  # heavy penalty
+
+            total_score = dur_score + vo2_score + early_penalty + short_low_penalty
 
             if total_score > best_score:
                 best_score = total_score
@@ -2370,6 +2409,10 @@ class Engine_E02_Thresholds_v4:
             conf = 0.78
         else:
             conf = 0.70
+
+        # V5 FIX #6b: Additional confidence reduction for short+low segments
+        if duration < 40 and mid_vo2_pct < 60:
+            conf *= 0.80  # 20% penalty — these are unreliable
 
         return cls._row_to_candidate(
             row, params, 'veq_vo2_rise', conf,
@@ -3497,7 +3540,9 @@ class Engine_E02_Thresholds_v4:
                     if len(pv) > 5:
                         sl = np.polyfit(range(len(pv)), pv.values, 1)[0] / dt_sec
                         if sl > 0.02:
-                            result.confidence *= 0.85
+                            # V5 FIX #7: Stronger penalty — PetCO2 rising means
+                            # we are BEFORE RCP, not at it. Was 0.85, now 0.75.
+                            result.confidence *= 0.75
                             adj_flags.append(f'ADJ_VT2_PETCO2_RISING:{sl:.4f}/s')
                             adj_notes.append(
                                 f'PetCO2 rising at VT2 ({sl:.4f}/s) — RCP may be later.')
