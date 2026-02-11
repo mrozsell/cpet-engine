@@ -1570,6 +1570,11 @@ class Engine_E02_Thresholds_v4:
             # Final status
             cls._set_status(result, vt1, vt2)
 
+            # V5 FIX #12c: Flag kinetics block detection
+            if params.get('kinetics_block_detected'):
+                result['flags'].append(
+                    f'KINETICS_BLOCK_TRUNCATED:cutoff={params["kinetics_cutoff_time"]:.0f}s')
+
         except Exception as e:
             result['status'] = 'ERROR'
             result['flags'].append(f'EXCEPTION:{type(e).__name__}:{str(e)[:80]}')
@@ -1652,6 +1657,40 @@ class Engine_E02_Thresholds_v4:
 
         df_ex = df_ex.sort_values('time').reset_index(drop=True)
 
+        # ── V5 FIX #12: Auto-detect kinetyka block / protocol end ────────
+        # Morawska case: step protocol + recovery + re-ramp (kinetyka block)
+        # Detect sudden VO2 crash (>30% drop from rolling peak within 120s)
+        # Truncate to BEFORE the crash to avoid confusing threshold detection
+        try:
+            t_arr = df_ex['time'].values
+            vo2_raw = df_ex['vo2_ml'].values
+            _w = max(5, int(20.0 / max(0.5, np.nanmedian(np.diff(t_arr)))))
+            vo2_rm = pd.Series(vo2_raw).rolling(_w, center=True, min_periods=3).mean().values
+            # Rolling peak (cumulative max up to each point)
+            vo2_running_peak = np.maximum.accumulate(np.nan_to_num(vo2_rm, nan=0))
+            # Find first point where VO2 drops >30% from running peak
+            # and running peak was at least 50% of overall max (avoid warmup)
+            overall_peak = np.nanmax(vo2_rm)
+            crash_idx = None
+            for i in range(len(vo2_rm)):
+                if vo2_running_peak[i] > overall_peak * 0.50:
+                    if vo2_rm[i] < vo2_running_peak[i] * 0.70:  # 30% drop
+                        crash_idx = i
+                        break
+            if crash_idx is not None and crash_idx > len(df_ex) * 0.40:
+                # Find the peak just before crash
+                pre_crash = max(0, crash_idx - _w)
+                t_cut = t_arr[pre_crash]
+                n_before = len(df_ex)
+                df_ex = df_ex[df_ex['time'] <= t_cut].copy()
+                if len(df_ex) >= 50:
+                    df_ex = df_ex.reset_index(drop=True)
+                    # Store flag for later
+                    df_ex.attrs['kinetics_block_detected'] = True
+                    df_ex.attrs['kinetics_cutoff_time'] = float(t_cut)
+        except Exception:
+            pass
+
         # ── Smoothing ────────────────────────────────────────────────────
         dt = df_ex['time'].diff().median()
         if not np.isfinite(dt) or dt <= 0:
@@ -1732,6 +1771,11 @@ class Engine_E02_Thresholds_v4:
                     body_mass = float(bm_vals.iloc[-1])
                     break
         params['body_mass_kg'] = body_mass
+
+        # V5 FIX #12b: Pass kinetics block info to result flags
+        if getattr(df_ex, 'attrs', {}).get('kinetics_block_detected'):
+            params['kinetics_block_detected'] = True
+            params['kinetics_cutoff_time'] = df_ex.attrs.get('kinetics_cutoff_time', 0)
 
         # ── Step protocol detection from Markers + Speed ─────────────────
         steps = cls._detect_steps_from_markers_and_speed(df_ex)
