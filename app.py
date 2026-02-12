@@ -223,16 +223,16 @@ with st.sidebar:
         kc1, kc2, kc3, kc4 = st.columns(4)
         with kc1:
             ks1 = st.number_input("S1: Baseline", min_value=3.0, max_value=25.0,
-                                  value=9.0, step=0.5, help="Poniżej VT1")
+                                  value=10.6, step=0.1, help="Poniżej VT1")
         with kc2:
             ks2 = st.number_input("S2: ~VT1", min_value=3.0, max_value=25.0,
-                                  value=11.0, step=0.5, help="W okolicach VT1")
+                                  value=12.9, step=0.1, help="W okolicach VT1")
         with kc3:
             ks3 = st.number_input("S3: ~VT2", min_value=3.0, max_value=25.0,
-                                  value=13.5, step=0.5, help="W okolicach VT2")
+                                  value=15.7, step=0.1, help="W okolicach VT2")
         with kc4:
             ks4 = st.number_input("S4: >VT2", min_value=3.0, max_value=25.0,
-                                  value=15.0, step=0.5, help="Powyżej VT2 (severe)")
+                                  value=16.7, step=0.1, help="Powyżej VT2 (severe)")
         kinetics_speeds = [ks1, ks2, ks3, ks4]
 
     MODALITY_MAP = {

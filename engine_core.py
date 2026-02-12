@@ -8237,23 +8237,158 @@ class Engine_E14_Kinetics:
     # STAGE DETECTION
     # ═══════════════════════════════════════════════════════════
     @staticmethod
+    @staticmethod
     def _detect_cwr_stages(t, vo2, hr, rer, kin_speeds):
         """Detect constant-work-rate stages from VO₂ profile.
 
-        Uses CUSUM to find ALL VO₂ transitions, builds segments between them,
-        classifies each as EXERCISE_STAGE (stable, CV<8%) or TRANSITION,
-        then picks the N stages with increasing VO₂ matching user speeds.
-        Also identifies transitions between stages for off-kinetics analysis.
+        PROTOCOL-AWARE detection for standard CWR kinetics protocol:
+          Min 0-1:   Rest
+          Min 1-7:   Stage 1 (baseline, <VT1)
+          Min 7-13:  Stage 2 (~VT1)
+          Min 13-19: Transition 1 (back to S1 speed)
+          Min 19-25: Stage 3 (~VT2)
+          Min 25-31: Transition 2 (back to S1 speed)
+          Min 31-37: Stage 4 (>VT2, may be shortened)
+          Min 37+:   Recovery
+
+        When kin_speeds are provided AND protocol is KINETICS,
+        uses fixed 6-min segmentation with CUSUM refinement of
+        exact transition times. Falls back to pure CUSUM detection
+        if fixed segmentation fails.
         """
         import numpy as np
         import pandas as pd
 
         n_expected = len(kin_speeds) if kin_speeds else 4
 
-        # 1. Smooth VO₂
-        vo2_s = pd.Series(vo2).rolling(20, center=True, min_periods=3).mean().values
+        # ── STRATEGY 1: Protocol-aware fixed segmentation ──
+        # Standard protocol: 1min rest + alternating 6min stages/transitions
+        # Stage times: [60, 420, 780, 1140, 1500, 1860, 2220]
+        #              rest  S1   S2    T1    S3    T2    S4
+        test_duration = float(t.max() - t.min())
 
-        # 2. CUSUM jump detection
+        if n_expected == 4 and test_duration >= 1200:
+            # Fixed boundaries for standard 4-stage protocol
+            t0 = float(t.min())
+            stage_dur = 360  # 6 min
+            rest_dur = 60    # 1 min
+
+            # Expected stage start times (seconds from recording start)
+            expected_starts = [
+                t0 + rest_dur,                              # S1: min 1
+                t0 + rest_dur + stage_dur,                  # S2: min 7
+                t0 + rest_dur + stage_dur * 3,              # S3: min 19 (after S2+T1)
+                t0 + rest_dur + stage_dur * 5,              # S4: min 31 (after S3+T2)
+            ]
+
+            # Refine each boundary using CUSUM (find nearest VO2 jump)
+            vo2_s = pd.Series(vo2).rolling(15, center=True, min_periods=3).mean().values
+            half_w = min(15, len(vo2) // 15)
+
+            refined_starts = []
+            for exp_t in expected_starts:
+                # Search ±90s around expected time for the biggest VO2 jump
+                search_start = max(0, np.searchsorted(t, exp_t - 90))
+                search_end = min(len(t) - 1, np.searchsorted(t, exp_t + 90))
+
+                best_jump = 0
+                best_idx = np.searchsorted(t, exp_t)  # default = expected
+
+                for i in range(max(half_w, search_start), min(len(t) - half_w, search_end)):
+                    bef = np.nanmean(vo2_s[i - half_w:i])
+                    aft = np.nanmean(vo2_s[i:i + half_w])
+                    jump = abs(aft - bef)
+                    if jump > best_jump:
+                        best_jump = jump
+                        best_idx = i
+
+                refined_starts.append(float(t[best_idx]))
+
+            # Build stages: each stage runs from refined_start to refined_start + ~6min
+            # But end is either: next transition start, or 6min, whichever is earlier
+            stages = []
+            for i in range(n_expected):
+                ts = refined_starts[i]
+
+                # Stage end: either next stage's transition start, or +6min
+                if i < n_expected - 1:
+                    # Next stage starts after a 6min transition
+                    # So this stage ends ~6min after it starts
+                    te_expected = ts + stage_dur
+                    # But also limited by next stage start - transition
+                    if i + 1 < len(refined_starts):
+                        te_max = refined_starts[i + 1] - 10  # a bit before next stage
+                        # For stages followed by transition (S1→S2 no transition, S2→T1 yes)
+                        if i == 0:
+                            # S1→S2: no transition between, S2 starts right after
+                            te = min(te_expected, refined_starts[1] - 5)
+                        else:
+                            te = min(te_expected, te_max)
+                    else:
+                        te = te_expected
+                else:
+                    # Last stage: up to +6min or end of test
+                    # But detect early termination (recovery drop)
+                    te_max = min(ts + stage_dur, float(t.max()) - 30)
+                    # Check for sustained VO2 drop within stage
+                    s_mask = (t >= ts) & (t <= te_max)
+                    if s_mask.sum() > 20:
+                        s_vo2 = vo2_s[s_mask]
+                        s_t = t[s_mask]
+                        # Find where 15s rolling mean drops >10% from peak
+                        peak_vo2 = np.nanmax(s_vo2[:len(s_vo2)*2//3+1])  # peak in first 2/3
+                        drop_thresh = peak_vo2 * 0.88
+                        for j in range(len(s_vo2) // 3, len(s_vo2)):
+                            window = s_vo2[max(0, j-8):j+1]
+                            if len(window) >= 5 and np.nanmean(window) < drop_thresh:
+                                te = float(s_t[max(0, j - 5)])
+                                break
+                        else:
+                            te = te_max
+                    else:
+                        te = te_max
+
+                dur = te - ts
+                if dur < 60:
+                    continue
+
+                mask = (t >= ts) & (t < te)
+                if mask.sum() < 10:
+                    continue
+
+                stage = {
+                    't_start': float(ts),
+                    't_end': float(te),
+                    'duration': float(dur),
+                    'vo2_mean': float(np.nanmean(vo2[mask])),
+                    'hr_mean': float(np.nanmean(hr[mask])) if not np.all(np.isnan(hr[mask])) else 0,
+                    'rer_mean': float(np.nanmean(rer[mask])) if not np.all(np.isnan(rer[mask])) else 0,
+                }
+
+                # Domain from RER
+                if stage['rer_mean'] < 0.95:
+                    stage['domain'] = 'MODERATE'
+                elif stage['rer_mean'] < 1.05:
+                    stage['domain'] = 'HEAVY'
+                else:
+                    stage['domain'] = 'SEVERE'
+
+                stages.append(stage)
+
+            # Validate: stages should have increasing VO2 (S1 < S2 < S3)
+            # S4 may be lower than S3 due to fatigue/incomplete recovery
+            if len(stages) >= 3:
+                valid = (stages[0]['vo2_mean'] < stages[1]['vo2_mean'] and
+                         stages[1]['vo2_mean'] < stages[2]['vo2_mean'])
+                if valid and len(stages) >= 2:
+                    # Assign speeds by VO2 order for first 3, S4 = last
+                    if kin_speeds:
+                        for i, s in enumerate(stages):
+                            s['speed_kmh'] = kin_speeds[i] if i < len(kin_speeds) else None
+                    return stages
+
+        # ── STRATEGY 2: Pure CUSUM fallback ──
+        vo2_s = pd.Series(vo2).rolling(20, center=True, min_periods=3).mean().values
         half_w = min(20, len(vo2) // 10)
         n = len(vo2_s)
         if half_w < 3 or n < 50:
@@ -8275,68 +8410,51 @@ class Engine_E14_Kinetics:
 
         dt_median = max(0.5, np.median(np.diff(t)))
         min_sep = max(1, int(60 / dt_median))
-        peaks, props = find_peaks(jump_score, distance=min_sep, height=80)
+        all_peaks, all_props = find_peaks(jump_score, distance=min_sep, height=80)
 
-        if len(peaks) < 2:
+        if len(all_peaks) < 2:
             return []
 
-        peaks = sorted(peaks)
-
-        # 3. Build ALL segments between transitions
+        peaks = sorted(all_peaks)
         all_boundaries = [0] + list(peaks) + [n - 1]
         segments = []
 
         for i in range(len(all_boundaries) - 1):
             idx_s = all_boundaries[i]
             idx_e = all_boundaries[i + 1]
-            ts = float(t[idx_s])
-            te = float(t[idx_e])
-            dur = te - ts
+            ts_seg = float(t[idx_s])
+            te_seg = float(t[idx_e])
+            dur = te_seg - ts_seg
             if dur < 30:
                 continue
-
-            mask = (t >= ts) & (t < te)
+            mask = (t >= ts_seg) & (t < te_seg)
             if mask.sum() < 5:
                 continue
-
             v_mean = float(np.nanmean(vo2[mask]))
             v_smooth_seg = vo2_s[mask]
             cv = float(np.nanstd(v_smooth_seg) / np.nanmean(v_smooth_seg) * 100) if np.nanmean(v_smooth_seg) > 0 else 999
-
             seg = {
-                't_start': ts,
-                't_end': te,
-                'duration': dur,
+                't_start': ts_seg, 't_end': te_seg, 'duration': dur,
                 'vo2_mean': v_mean,
                 'hr_mean': float(np.nanmean(hr[mask])) if not np.all(np.isnan(hr[mask])) else 0,
                 'rer_mean': float(np.nanmean(rer[mask])) if not np.all(np.isnan(rer[mask])) else 0,
                 'cv_pct': cv,
-                'is_stage': cv < 10 and dur >= 100,  # stable enough and long enough
+                'is_stage': cv < 10 and dur >= 100,
             }
             segments.append(seg)
 
-        # 4. Select N exercise stages with INCREASING VO₂
-        # Strategy: from all "stage" segments, pick N with distinct VO₂ levels
         stage_segs = [s for s in segments if s['is_stage'] and s['vo2_mean'] > 1000]
-
-        if len(stage_segs) < n_expected:
-            # Relax: include shorter/less stable segments
+        if len(stage_segs) < 2:
             stage_segs = [s for s in segments if s['duration'] >= 60 and s['vo2_mean'] > 1000]
-
         if len(stage_segs) < 2:
             return []
 
-        # Sort by VO₂ level
         stage_segs.sort(key=lambda x: x['vo2_mean'])
-
-        # Remove duplicates at similar VO₂ level (within 5%)
-        # Keep the LONGEST segment at each level
         deduped = []
         for seg in stage_segs:
             merged = False
             for d in deduped:
-                pct_diff = abs(seg['vo2_mean'] - d['vo2_mean']) / d['vo2_mean'] * 100
-                if pct_diff < 7:
+                if abs(seg['vo2_mean'] - d['vo2_mean']) / d['vo2_mean'] * 100 < 7:
                     if seg['duration'] > d['duration']:
                         deduped.remove(d)
                         deduped.append(seg)
@@ -8345,12 +8463,8 @@ class Engine_E14_Kinetics:
             if not merged:
                 deduped.append(seg)
 
-        # Sort by VO₂ again
         deduped.sort(key=lambda x: x['vo2_mean'])
-
-        # If still more than N, pick N most separated levels
         if len(deduped) > n_expected:
-            # Take N evenly spaced in VO₂ range
             vo2_range = [d['vo2_mean'] for d in deduped]
             target_vo2 = np.linspace(min(vo2_range), max(vo2_range), n_expected)
             selected = []
@@ -8360,41 +8474,17 @@ class Engine_E14_Kinetics:
                     selected.append(closest)
             deduped = selected
 
-        # If fewer than N, that's OK — report what we have
-
-        # Sort final stages by time
         deduped.sort(key=lambda x: x['t_start'])
-
-        # Assign domain and speed
         for s in deduped:
-            if s['rer_mean'] < 0.95:
-                s['domain'] = 'MODERATE'
-            elif s['rer_mean'] < 1.05:
-                s['domain'] = 'HEAVY'
-            else:
-                s['domain'] = 'SEVERE'
+            s['domain'] = ('MODERATE' if s['rer_mean'] < 0.95 else
+                           ('HEAVY' if s['rer_mean'] < 1.05 else 'SEVERE'))
 
         if kin_speeds:
-            # Match speeds to stages by VO₂ order (lowest VO₂ = lowest speed)
             vo2_order = sorted(range(len(deduped)), key=lambda i: deduped[i]['vo2_mean'])
             for rank, idx in enumerate(vo2_order):
                 deduped[idx]['speed_kmh'] = kin_speeds[rank] if rank < len(kin_speeds) else None
 
-        # Store transitions for off-kinetics
-        # (segments between exercise stages)
-        transition_segs = [s for s in segments if not s['is_stage'] or s not in deduped]
-        for s in deduped:
-            s['_transitions_after'] = [
-                ts for ts in transition_segs
-                if ts['t_start'] >= s['t_end'] - 10
-                and ts['t_end'] <= (deduped[deduped.index(s) + 1]['t_start'] + 10
-                                    if deduped.index(s) < len(deduped) - 1
-                                    else t[-1])
-            ]
-
         return deduped
-
-    # ═══════════════════════════════════════════════════════════
     # STAGE ANALYSIS (on-kinetics + slow component)
     # ═══════════════════════════════════════════════════════════
     @staticmethod
