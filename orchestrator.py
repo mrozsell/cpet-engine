@@ -1033,6 +1033,15 @@ class CPET_Orchestrator:
             self.results,
             self.cfg)
 
+        # E22: Cross-Engine Correlation Analysis (all phases)
+        try:
+            from e22_cross_correlation import Engine_E22_CrossCorrelation
+            self.results["E22"] = Engine_E22_CrossCorrelation.run(
+                self.results,
+                {'_df_processed': self.processed, '_acfg': self.cfg})
+        except Exception as _e22_err:
+            self.results["E22"] = {"status": "ERROR", "reason": str(_e22_err)}
+
         # ── FEEDBACK LOOP: post-validation threshold adjustment ──
         try:
             self._feedback_loop(df_ex)
@@ -1078,12 +1087,30 @@ class CPET_Orchestrator:
             html_report = f"<html><body><h1>Raport niedostępny</h1><p>{e}</p></body></html>"
             html_report_lite = html_report
 
+        # Kinetics report (if CWR kinetics protocol)
+        html_report_kinetics = None
+        try:
+            e14_data = self.results.get('E14', {})
+            if e14_data.get('mode') == 'CWR_KINETICS' and e14_data.get('stages'):
+                from report import render_kinetics_report, generate_kinetics_charts, inject_kinetics_charts
+                _kin_ct = dict(canon_table) if canon_table else {}
+                _kin_ct['sport'] = getattr(self.cfg, 'sport', '') or getattr(self.cfg, 'modality', 'run') or 'run'
+                html_report_kinetics = render_kinetics_report(self.results, _kin_ct, self.processed)
+                # Generate and inject charts
+                _kin_charts = generate_kinetics_charts(self.processed, self.results)
+                if _kin_charts:
+                    html_report_kinetics = inject_kinetics_charts(html_report_kinetics, _kin_charts)
+        except Exception as e:
+            print(f"⚠️ Kinetics report generation error: {e}")
+            import traceback; traceback.print_exc()
+
         self._last_report = {
             "outputs_calc_only": outputs,
             "trainer_canon_flat": trainer_canon_flat,
             "canon_table": canon_table,
             "text_report": text_report, "html_report": html_report,
             "html_report_lite": html_report_lite,
+            "html_report_kinetics": html_report_kinetics,
             "raw_results": self.results
         }
         return self._last_report

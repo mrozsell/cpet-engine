@@ -144,9 +144,9 @@ with st.sidebar:
     st.markdown("### 📄 Typ raportu")
     report_type = st.radio(
         "Wybierz format raportu",
-        ["PRO — Pełna diagnostyka", "LITE — Dla sportowca"],
+        ["PRO — Pełna diagnostyka", "LITE — Dla sportowca", "KINETYKA — Raport kinetyczny"],
         index=0,
-        help="PRO: pełny raport z danymi diagnostycznymi. LITE: uproszczony, wizualny raport dla klienta."
+        help="PRO: pełny raport z danymi diagnostycznymi. LITE: uproszczony, wizualny raport dla klienta. KINETYKA: dedykowany raport z testu CWR kinetyki VO₂."
     )
 
     auto_info = {}
@@ -570,14 +570,22 @@ if "cpet_results" in st.session_state:
 
     # Select report based on user choice
     is_lite = "LITE" in report_type
+    is_kinetics = "KINETYKA" in report_type
     _lite_html = st.session_state.get("cpet_html_lite")
     has_lite = _lite_html is not None and len(str(_lite_html)) > 100
-    if is_lite and has_lite:
+    _kinetics_html = results.get("html_report_kinetics")
+    has_kinetics = _kinetics_html is not None and len(str(_kinetics_html)) > 100
+    if is_kinetics and has_kinetics:
+        html_content = _kinetics_html
+        report_label = "KINETICS"
+    elif is_lite and has_lite:
         html_content = _lite_html
         report_label = "LITE"
     else:
         html_content = results["html_report"]
         report_label = "PRO"
+        if is_kinetics and not has_kinetics:
+            st.info("ℹ️ Raport kinetyczny niedostępny (brak danych CWR). Wyświetlam raport PRO.")
 
     if e20_html:
         html_content = html_content.replace("</body>", e20_html + "</body>")

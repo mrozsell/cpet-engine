@@ -5024,3 +5024,1502 @@ KONIEC RAPORTU (v1.1 T12)
         return report
 
 print("✅ Komórka 4: Report Adapter (FULL T12 TEMPLATE RESTORED) załadowana.")
+
+# ═══════════════════════════════════════════════════════════════
+# KINETICS REPORT
+# ═══════════════════════════════════════════════════════════════
+
+def render_kinetics_report(results: dict, ct: dict, df=None) -> str:
+    """Generate standalone HTML kinetics report.
+    
+    Args:
+        results: dict with E00, E01, E02, E14, E21, etc.
+        ct: canon table from build_canon_table()
+        df: processed DataFrame (for chart data)
+    Returns:
+        Complete HTML string
+    """
+    import html as html_mod
+    import json
+    import numpy as np
+
+    esc = html_mod.escape
+
+    # ── Helper functions ──
+    def _n(v, fmt='.1f'):
+        if v is None: return '-'
+        try: return f'{float(v):{fmt}}'
+        except: return str(v)
+
+    def badge(text, color='#16a34a'):
+        return f'<span style="display:inline-block;padding:2px 10px;border-radius:4px;font-size:11px;font-weight:700;background:{color}15;color:{color};border:1px solid {color}40;">{text}</span>'
+
+    def badge_class(cls):
+        colors = {
+            'ELITE':'#7c3aed','TRAINED':'#16a34a','ACTIVE':'#d97706','SLOW':'#ea580c',
+            'MINIMAL':'#16a34a','NORMAL':'#65a30d','HIGH':'#ea580c','VERY_HIGH':'#dc2626',
+            'EXCELLENT':'#16a34a','GOOD':'#16a34a','WELL_INTEGRATED':'#16a34a',
+            'DELIVERY_LIMITED':'#ea580c','PERIPHERAL_LIMITED':'#dc2626','MIXED_CHECK_DATA':'#d97706',
+        }
+        col = colors.get(cls, '#64748b')
+        labels = {
+            'ELITE':'ELITARNA','TRAINED':'WYTRENOWANA','ACTIVE':'AKTYWNA','SLOW':'WOLNA',
+            'MINIMAL':'MINIMALNY','NORMAL':'NORMALNY','HIGH':'WYSOKI','VERY_HIGH':'B.WYSOKI',
+            'EXCELLENT':'DOSKONAŁA','GOOD':'DOBRA',
+            'WELL_INTEGRATED':'ZINTEGROWANY','DELIVERY_LIMITED':'LIMIT DOSTAWY O₂',
+            'PERIPHERAL_LIMITED':'LIMIT PERYFERYJNY','MIXED_CHECK_DATA':'MIESZANY',
+        }
+        return badge(labels.get(cls, cls), col)
+
+    def gauge_svg(score, label, size=80, subtitle=''):
+        pct = max(0, min(100, float(score) if score else 0))
+        if pct >= 85: col = '#16a34a'
+        elif pct >= 70: col = '#65a30d'
+        elif pct >= 55: col = '#d97706'
+        elif pct >= 40: col = '#ea580c'
+        else: col = '#dc2626'
+        if pct == 0: col = '#cbd5e1'
+        r = size * 0.4; cx = size / 2; cy = size * 0.5
+        circ = 2 * 3.14159 * r; dash = circ * pct / 100; gap = circ - dash
+        disp = f'{int(score)}' if score else '\u2014'
+        h = size + (24 if subtitle else 14)
+        sub_txt = f'<text x="{cx}" y="{size+20}" text-anchor="middle" font-size="7" fill="#94a3b8">{subtitle}</text>' if subtitle else ''
+        return f'<svg width="{size}" height="{h}" viewBox="0 0 {size} {h}"><circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#e5e7eb" stroke-width="6"/><circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{col}" stroke-width="6" stroke-dasharray="{dash} {gap}" stroke-linecap="round" transform="rotate(-90 {cx} {cy})"/><text x="{cx}" y="{cy+1}" text-anchor="middle" dominant-baseline="middle" font-size="16" font-weight="700" fill="{col}">{disp}</text><text x="{cx}" y="{cy+r+10}" text-anchor="middle" font-size="8" font-weight="600" fill="#475569">{label}</text>{sub_txt}</svg>'
+
+    def row_item(label, value, assessment='', comment=''):
+        colors = {
+            'EXCELLENT':'#16a34a','NORMA':'#16a34a','GOOD':'#16a34a','TRAINED':'#16a34a',
+            'ELITE':'#7c3aed','NORMAL':'#16a34a','MINIMAL':'#16a34a',
+            'MODERATE':'#d97706','ACTIVE':'#d97706',
+            'SLOW':'#ea580c','HIGH':'#ea580c',
+            'VERY_SLOW':'#dc2626','VERY_HIGH':'#dc2626','POOR':'#dc2626',
+        }
+        a_upper = str(assessment).upper().strip()
+        col = colors.get(a_upper, '#64748b')
+        a_disp = a_upper if a_upper else ''
+        short = {
+            'EXCELLENT':'DOSKONAŁA','TRAINED':'WYTREN.','ELITE':'ELITARNA',
+            'MINIMAL':'MINIMALNY','VERY_SLOW':'B.WOLNA','VERY_HIGH':'B.WYSOKI',
+            'NORMAL':'NORMA','GOOD':'DOBRA','SLOW':'WOLNA','ACTIVE':'AKTYWNA',
+        }
+        a_label = short.get(a_upper, a_disp)
+        a_html = f'<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;background:{col}12;color:{col};">{a_label}</span>' if a_label else ''
+        c_html = f'<div style="font-size:10px;color:#94a3b8;margin-top:1px;">{comment}</div>' if comment else ''
+        return f'''<div style="display:flex;align-items:flex-start;padding:5px 0;border-bottom:1px solid #f1f5f9;">
+  <div style="flex:0 0 140px;font-size:12px;color:#64748b;font-weight:500;">{label}</div>
+  <div style="flex:1;font-size:13px;font-weight:600;color:#0f172a;">{value}</div>
+  <div style="flex:0 0 auto;text-align:right;">{a_html}</div>
+</div>{c_html}'''
+
+    # ── Sport-Phenotype compatibility matrix ──
+    MODALITY_LABELS = {
+        'run': '🏃 Bieg', 'bike': '🚴 Kolarstwo', 'triathlon': '🏊 Triathlon',
+        'rowing': '🚣 Wioślarstwo', 'crossfit': '🏋️ CrossFit',
+        'hyrox': '💪 HYROX', 'swimming': '🏊 Pływanie', 'xc_ski': '⛷️ Biegi narciarskie',
+        'soccer': '⚽ Piłka nożna', 'mma': '🥊 MMA / Sporty walki',
+    }
+
+    # compatibility: 3=ideal, 2=good, 1=partial, 0=mismatch
+    SPORT_PHENOTYPE_FIT = {
+        'run': {
+            'ELITE_AEROBIC': (3, 'Optymalny profil dla biegacza — szybkie τ i niski SC to klucz do ekonomii biegowej'),
+            'DIESEL': (3, 'Idealny profil na dystanse >10K — silnik wytrzymałościowy z efektywną ekonomią'),
+            'TEMPO_RUNNER': (3, 'Profil tempowca — naturalny dla biegów 5K–HM, potencjał przez trening progowy'),
+            'BURST_RECOVER': (1, 'Profil powtarzalnych wysiłków — mniej optymalny dla biegów dystansowych, lepszy dla fartleków'),
+            'POWER_ENDURANCE': (1, 'Profil siłowy — wymaga pracy nad τ i SC żeby poprawić ekonomię biegową'),
+            'DELIVERY_LIMITED': (2, 'Limitacja centralna — mięśnie OK, poprawa przez trening interwałowy i progowy'),
+            'PERIPHERAL_LIMITED': (1, 'Limitacja obwodowa — wymaga budowy bazy aerobowej i ekonomii biegowej'),
+        },
+        'bike': {
+            'ELITE_AEROBIC': (3, 'Zoptymalizowany profil — doskonały dla TT i kolarstwa szosowego'),
+            'DIESEL': (3, 'Silnik wytrzymałościowy — idealny na długie etapy i TT'),
+            'TEMPO_RUNNER': (2, 'Profil tempowca — solidny w średnich dystansach, optymalizacja SC poprawi threshold power'),
+            'BURST_RECOVER': (2, 'Profil repeat-effort — przydatny w kryteriach i wyścigach drogowych z atakami'),
+            'POWER_ENDURANCE': (2, 'Profil siłowy — nadaje się do sprintów i krótkich wyścigów, buduj bazę na dystans'),
+            'DELIVERY_LIMITED': (2, 'Limitacja centralna — trening SST/FTP poprawi delivery'),
+            'PERIPHERAL_LIMITED': (1, 'Limitacja obwodowa — bazowy trening objętościowy Z2 jest priorytetem'),
+        },
+        'triathlon': {
+            'ELITE_AEROBIC': (3, 'Optymalny profil triatlonisty — szybka kinetyka = szybka adaptacja do zmian dyscypliny'),
+            'DIESEL': (3, 'Idealny silnik Ironmana — efektywność i wytrzymałość na wielu godzinach wysiłku'),
+            'TEMPO_RUNNER': (2, 'Solidny profil na Olympic/HIM — τ do optymalizacji na Ironmana'),
+            'BURST_RECOVER': (1, 'Mniej optymalny — triathlon wymaga stabilnego steady-state, nie zmian tempa'),
+            'POWER_ENDURANCE': (1, 'Profil siłowy wymaga znacznej pracy nad bazą aerobową dla triathlonu'),
+            'DELIVERY_LIMITED': (2, 'Limitacja centralna — poprawa przez block training i swim/bike volume'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga budowy bazy aerobowej — priorytet to objętość Z2 we wszystkich dyscyplinach'),
+        },
+        'hyrox': {
+            'ELITE_AEROBIC': (3, 'Zoptymalizowany — szybka recovery między stacjami to klucz w HYROX'),
+            'DIESEL': (3, 'Idealny profil HYROX PRO — efektywna ekonomia na bieżni + recovery na stacjach'),
+            'TEMPO_RUNNER': (2, 'Dobry potencjał — optymalizacja τ poprawi recovery między stacjami'),
+            'BURST_RECOVER': (3, 'Naturalny profil HYROX — szybka recovery między różnymi zadaniami'),
+            'POWER_ENDURANCE': (2, 'Siła OK na stacje, ale poprawa τ i SC poprawi segmenty biegowe'),
+            'DELIVERY_LIMITED': (2, 'Trening interwałowy i race-pace poprawi delivery'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga pracy nad bazą — stacje siłowe OK, biegi wymagają poprawy'),
+        },
+        'crossfit': {
+            'ELITE_AEROBIC': (2, 'Dobry motor aerobowy — ale CrossFit wymaga też mocy i recovery'),
+            'DIESEL': (2, 'Silna baza aerobowa — kluczowa w długich WODach, rozbudowa power capacity'),
+            'TEMPO_RUNNER': (2, 'Solidna baza — buduj repeat-effort capacity przez interwały'),
+            'BURST_RECOVER': (3, 'Idealny profil CrossFit — szybka recovery między seriami i rundami'),
+            'POWER_ENDURANCE': (3, 'Naturalny profil CF — dominacja Type II + zdolność do powtórzeń'),
+            'DELIVERY_LIMITED': (2, 'Poprawa delivery pomoże w dłuższych WODach (Murph, Hero WODs)'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga budowy bazy — dłuższe metcony będą problemem'),
+        },
+        'soccer': {
+            'ELITE_AEROBIC': (2, 'Silny motor — piłka wymaga też explosive recovery'),
+            'DIESEL': (2, 'Dobra baza wytrzymałościowa — buduj repeat-sprint ability'),
+            'TEMPO_RUNNER': (2, 'Solidny profil — optymalizacja recovery poprawi grę w 2. połowie'),
+            'BURST_RECOVER': (3, 'Idealny profil piłkarza — szybka recovery po sprintach i zmianach kierunku'),
+            'POWER_ENDURANCE': (2, 'Profil siłowy — dobry na sprinty, buduj bazę na 90 minut'),
+            'DELIVERY_LIMITED': (2, 'Trening SSG i interwałowy poprawi wydolność meczową'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga bazowej pracy aerobowej — preseason priority'),
+        },
+        'mma': {
+            'ELITE_AEROBIC': (2, 'Silna baza — MMA wymaga też repeat-effort capacity'),
+            'DIESEL': (2, 'Dobra baza na 3-5 rund — buduj explosive recovery'),
+            'TEMPO_RUNNER': (2, 'Solidna baza — poprawa recovery kluczowa między rundami'),
+            'BURST_RECOVER': (3, 'Idealny profil MMA — szybka recovery po exchange\'ach i grapplingu'),
+            'POWER_ENDURANCE': (3, 'Naturalny profil — explosive + repeat capacity = kluczowe w walce'),
+            'DELIVERY_LIMITED': (2, 'Poprawa delivery poprawi pacing w dłuższych walkach'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga pracy bazowej — grappling wymaga wydolności'),
+        },
+        'rowing': {
+            'ELITE_AEROBIC': (3, 'Optymalny profil wioślarza — szybka kinetyka i efektywność'),
+            'DIESEL': (3, 'Idealny silnik — efektywna ekonomia na 2K i dystanse'),
+            'TEMPO_RUNNER': (2, 'Solidna baza — optymalizacja τ poprawi rate-ups'),
+            'BURST_RECOVER': (1, 'Wioślarstwo wymaga raczej stabilnego steady-state niż repeat-effort'),
+            'POWER_ENDURANCE': (2, 'Siła OK — buduj bazę aerobową na 2K+ dystanse'),
+            'DELIVERY_LIMITED': (2, 'Trening UT2/UT1 i progowy poprawi delivery'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga budowy bazy — priorytet to objętość UT2'),
+        },
+        'swimming': {
+            'ELITE_AEROBIC': (3, 'Optymalny profil — szybka kinetyka kluczowa w pływaniu'),
+            'DIESEL': (3, 'Silnik wytrzymałościowy — idealny na 400+ i OW'),
+            'TEMPO_RUNNER': (2, 'Dobra baza na 200–400m — optymalizacja τ poprawi economy'),
+            'BURST_RECOVER': (2, 'Przydatny w IM i relay — szybka recovery między dystansami'),
+            'POWER_ENDURANCE': (2, 'Profil sprinterski — dobry na 50–100m, buduj bazę na dystans'),
+            'DELIVERY_LIMITED': (2, 'Trening aerobowy + technique poprawi delivery'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga bazowej pracy aerobowej'),
+        },
+        'xc_ski': {
+            'ELITE_AEROBIC': (3, 'Optymalny profil narciarza — szybka kinetyka na zmianach terenu'),
+            'DIESEL': (3, 'Idealny silnik na dystanse — efektywność to klucz w biegach narciarskich'),
+            'TEMPO_RUNNER': (2, 'Solidna baza — optymalizacja τ poprawi odpowiedź na zmiany terenu'),
+            'BURST_RECOVER': (2, 'Przydatny na sprintach i zmianach tempa'),
+            'POWER_ENDURANCE': (1, 'Profil siłowy — narty wymagają raczej bazowej wydolności'),
+            'DELIVERY_LIMITED': (2, 'Poprawa delivery kluczowa — trening objętościowy priorytetem'),
+            'PERIPHERAL_LIMITED': (1, 'Wymaga dużej bazy aerobowej — narty to sport wytrzymałościowy'),
+        },
+    }
+
+    # ── Extract data ──
+    e14 = results.get('E14', {})
+    e21 = results.get('E21', {})
+    e22 = results.get('E22', {})
+    e02 = results.get('E02', {})
+    e01 = results.get('E01', {})
+
+    stages = e14.get('stages', [])
+    off_ks = e14.get('off_kinetics', [])
+    kin_summary = e14.get('kinetics_summary', {})
+    
+    phenotype = e21.get('phenotype', '?')
+    pheno_info = e21.get('phenotype_info', {})
+    pheno_conf = e21.get('phenotype_confidence', 0)
+    limitation = e21.get('limitation', {})
+    fiber = e21.get('fiber_type_proxy', {})
+    kin_profile = e21.get('kinetic_profile', {})
+    domain_val = e21.get('domain_validation', {})
+    priorities = e21.get('training_priorities', [])
+    flags = e21.get('flags', [])
+
+    name = ct.get('name', ct.get('athlete_name', ''))
+    test_date = ct.get('test_date', ct.get('date', ''))
+    age = ct.get('age', '')
+    weight = ct.get('weight', '')
+    height = ct.get('height', '')
+    sport = ct.get('sport', ct.get('modality', 'run'))
+    sport_label = MODALITY_LABELS.get(sport, sport)
+
+    vo2max = e01.get('vo2peak_rel_mlkgmin', ct.get('VO2peak_rel'))
+    vo2max_abs = e01.get('vo2peak_abs_mlmin', ct.get('VO2peak_abs'))
+    vt1_speed = e02.get('vt1_speed_kmh')
+    vt2_speed = e02.get('vt2_speed_kmh')
+    vt1_pct = kin_profile.get('vt1_pct_vo2max')
+    vt2_pct = kin_profile.get('vt2_pct_vo2max')
+    heavy_width = kin_profile.get('heavy_zone_width_pct')
+
+    # Logo
+    with open('/home/claude/logo_b64.txt') as f:
+        _logo = f.read().strip()
+
+    # ═══════════════════════════════════════════════════════
+    # BUILD HTML
+    # ═══════════════════════════════════════════════════════
+
+    h = f'''<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kinetyka VO₂ — {esc(str(name))}</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a;line-height:1.5;}}
+.wrap{{max-width:920px;margin:0 auto;padding:20px;}}
+.card{{background:white;border-radius:12px;border:1px solid #e2e8f0;padding:18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,0.04);}}
+.section-title{{font-size:14px;font-weight:700;color:#0f172a;padding-bottom:6px;margin-bottom:10px;border-bottom:2px solid #e2e8f0;}}
+.sub-header{{margin:10px 0 6px;font-size:11px;font-weight:700;color:#475569;border-top:1px solid #e2e8f0;padding-top:6px;text-transform:uppercase;letter-spacing:0.5px;}}
+.domain-card{{border-radius:10px;border:1px solid #e2e8f0;padding:14px;flex:1;min-width:200px;}}
+.domain-mod{{border-left:4px solid #3b82f6;}}
+.domain-hvy{{border-left:4px solid #d97706;}}
+.domain-sev{{border-left:4px solid #dc2626;}}
+.tau-bar{{height:8px;border-radius:4px;margin:4px 0;}}
+.stage-table{{width:100%;border-collapse:collapse;font-size:12px;}}
+.stage-table th{{text-align:left;padding:6px 8px;color:#64748b;font-weight:600;font-size:11px;border-bottom:2px solid #e2e8f0;}}
+.stage-table td{{padding:6px 8px;border-bottom:1px solid #f1f5f9;}}
+.stage-table tr:hover{{background:#f8fafc;}}
+.flag-item{{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin:2px;}}
+.priority-row{{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;}}
+.priority-num{{flex:0 0 28px;height:28px;border-radius:50%;background:#0f172a;color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}}
+@media print{{body{{background:white;}} .wrap{{max-width:100%;padding:10px;}} .card{{break-inside:avoid;box-shadow:none;page-break-inside:avoid;}}}}
+</style></head><body><div class="wrap">'''
+
+    # ═══════════════════════════════════════════════════════
+    # HEADER
+    # ═══════════════════════════════════════════════════════
+    h += f'''<div style="padding:20px 24px;background:linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#334155 100%);border-radius:16px;color:white;margin-bottom:14px;position:relative;overflow:hidden;">
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:11px;color:#94a3b8;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px;">⚡ Raport kinetyki VO₂ &amp; Slow Component</div>
+      <div style="font-size:28px;font-weight:800;margin-bottom:4px;letter-spacing:-0.5px;">{esc(str(name))}</div>
+      <div style="font-size:12px;color:#cbd5e1;margin-bottom:4px;">Test kinetyczny: {test_date} | Wiek: {age} | {weight} kg | {height} cm</div>
+      <div style="font-size:12px;color:#93c5fd;font-weight:600;margin-bottom:4px;">Dyscyplina: {sport_label}</div>
+      <div style="display:flex;gap:14px;font-size:11px;">
+        <a href="https://www.peaklab.com.pl" target="_blank" style="color:#93c5fd;text-decoration:none;">🌐 www.peaklab.com.pl</a>
+        <a href="https://www.instagram.com/peak_lab_" target="_blank" style="color:#93c5fd;text-decoration:none;">📷 @peak_lab_</a>
+      </div>
+    </div>
+    <div style="flex-shrink:0;margin-left:16px;">
+      <img src="data:image/svg+xml;base64,{_logo}" style="height:90px;opacity:0.9;" alt="PeakLab">
+    </div>
+  </div>
+</div>'''
+
+    # ═══════════════════════════════════════════════════════
+    # PHENOTYPE HERO CARD
+    # ═══════════════════════════════════════════════════════
+    pheno_icon = pheno_info.get('icon', '🔬')
+    pheno_label = pheno_info.get('label_pl', phenotype)
+    pheno_desc = pheno_info.get('desc', '')
+    pheno_arch = pheno_info.get('archetype', '')
+    lim_primary = limitation.get('primary', '?')
+    lim_evidence = limitation.get('evidence', [])
+    conf_pct = int(pheno_conf * 100) if pheno_conf < 1 else int(pheno_conf)
+
+    fiber_profile = fiber.get('profile', '?')
+    fiber_type1 = fiber.get('estimated_type_I_pct', '?')
+    
+    h += f'''<div class="card">
+  <div class="section-title">Fenotyp kinetyczny</div>
+  <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+    <div style="flex:0 0 auto;text-align:center;">
+      <div style="font-size:52px;margin-bottom:4px;">{pheno_icon}</div>
+      <div style="font-size:20px;font-weight:800;color:#0f172a;">{esc(str(pheno_label))}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Pewność: {conf_pct}%</div>
+    </div>
+    <div style="flex:1;min-width:250px;">
+      <div style="font-size:13px;color:#334155;margin-bottom:8px;">{esc(str(pheno_desc))}</div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px;">Archetyp: {esc(str(pheno_arch))}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:11px;color:#64748b;">Limitacja: {badge_class(lim_primary)}</div>
+        <div style="font-size:11px;color:#64748b;">Włókna: {badge(str(fiber_type1) + " Typ I", "#2563eb")}</div>
+      </div>
+    </div>
+  </div>
+</div>'''
+
+    # ═══════════════════════════════════════════════════════
+    # SPORT-PHENOTYPE COMPATIBILITY
+    # ═══════════════════════════════════════════════════════
+    sport_fits = SPORT_PHENOTYPE_FIT.get(sport, {})
+    fit_score, fit_comment = sport_fits.get(phenotype, (0, 'Brak danych o kompatybilności'))
+    fit_colors = {3: '#16a34a', 2: '#d97706', 1: '#ea580c', 0: '#64748b'}
+    fit_labels = {3: 'OPTYMALNY', 2: 'DOBRY', 1: 'CZĘŚCIOWY', 0: '—'}
+    fit_icons = {3: '✅', 2: '🔶', 1: '⚠️', 0: '❔'}
+    fc = fit_colors.get(fit_score, '#64748b')
+
+    h += f'''<div class="card" style="border-left:4px solid {fc};">
+  <div style="display:flex;gap:16px;align-items:flex-start;">
+    <div style="font-size:28px;">{fit_icons.get(fit_score, '❔')}</div>
+    <div style="flex:1;">
+      <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">
+        Kompatybilność fenotypu z dyscypliną
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px;">
+        <span style="font-size:16px;font-weight:800;color:#0f172a;">{pheno_icon} {esc(str(pheno_label))}</span>
+        <span style="font-size:14px;color:#64748b;">×</span>
+        <span style="font-size:16px;font-weight:800;color:#0f172a;">{sport_label}</span>
+        <span style="font-size:14px;color:#64748b;">→</span>
+        <span style="display:inline-block;padding:3px 12px;border-radius:6px;font-size:12px;font-weight:700;background:{fc}15;color:{fc};border:1px solid {fc}40;">{fit_labels.get(fit_score, '—')}</span>
+      </div>
+      <div style="font-size:13px;color:#334155;">{esc(fit_comment)}</div>
+    </div>
+  </div>
+</div>'''
+
+    # ═══════════════════════════════════════════════════════
+    # BASELINE CONTEXT (mini)
+    # ═══════════════════════════════════════════════════════
+    h += f'''<div class="card" style="padding:12px 18px;">
+  <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
+    <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">Baseline (test do odmowy)</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;">
+      <div><span style="color:#64748b;">VO₂max:</span> <b>{_n(vo2max)}</b> ml/kg/min</div>
+      <div><span style="color:#64748b;">VT1:</span> <b>{_n(vt1_speed)}</b> km/h ({_n(vt1_pct, ".0f")}%)</div>
+      <div><span style="color:#64748b;">VT2:</span> <b>{_n(vt2_speed)}</b> km/h ({_n(vt2_pct, ".0f")}%)</div>
+      <div><span style="color:#64748b;">Heavy zone:</span> <b>{_n(heavy_width, ".0f")}%</b></div>
+    </div>
+  </div>
+</div>'''
+
+    # ═══════════════════════════════════════════════════════
+    # STAGE TABLE
+    # ═══════════════════════════════════════════════════════
+    h += '<div class="card"><div class="section-title">Protokół kinetyczny — stadia CWR</div>'
+    h += '<table class="stage-table"><thead><tr>'
+    h += '<th>Stadium</th><th>Prędkość</th><th>Domena</th><th>τ on [s]</th><th>SC [%]</th><th>VO₂ śr.</th><th>%max</th><th>HR śr.</th><th>RER</th><th>Czas</th>'
+    h += '</tr></thead><tbody>'
+
+    domain_colors = {'MODERATE':'#3b82f6','HEAVY':'#d97706','SEVERE':'#dc2626','VERY_SEVERE':'#7c3aed'}
+    domain_short = {'MODERATE':'MOD','HEAVY':'HVY','SEVERE':'SEV','VERY_SEVERE':'V.SEV'}
+    
+    # Domain validation
+    dv_stages = domain_val.get('stages', []) if isinstance(domain_val, dict) else []
+    dv_map = {s.get('stage_num'): s for s in dv_stages} if dv_stages else {}
+
+    for s in stages:
+        snum = s.get('stage_num', 0)
+        dom = s.get('domain', '?')
+        speed = s.get('speed_kmh', 0)
+        tau = s.get('tau_on_s')
+        tau_cls = s.get('tau_class', '')
+        sc_pct = s.get('sc_pct')
+        sc_cls = s.get('sc_class', '')
+        vo2_mean = s.get('vo2_mean_mlmin', s.get('vo2kg_mean', 0))
+        vo2kg = s.get('vo2kg_mean', 0)
+        pct_max = s.get('pct_vo2max', 0)
+        hr = s.get('hr_mean', 0)
+        rer = s.get('rer_mean', 0)
+        dur = s.get('duration_s', 0)
+
+        # Domain match check
+        dv = dv_map.get(snum, {})
+        dom_match = dv.get('domain_match', True) if dv else True
+        dom_icon = '✓' if dom_match else '⚠'
+
+        dcol = domain_colors.get(dom, '#64748b')
+        dshort = domain_short.get(dom, dom[:3])
+        
+        tau_str = f'{tau:.0f}' if tau else '-'
+        sc_str = f'{sc_pct:.1f}' if sc_pct is not None else '-'
+        dur_str = f'{dur/60:.1f}min' if dur >= 120 else f'{dur:.0f}s'
+
+        h += f'''<tr>
+  <td><b>S{snum}</b></td>
+  <td>{speed} km/h</td>
+  <td><span style="color:{dcol};font-weight:700;">{dshort}</span> {dom_icon}</td>
+  <td><b>{tau_str}</b> <span style="font-size:10px;color:{domain_colors.get(tau_cls, '#64748b')};">{tau_cls}</span></td>
+  <td>{sc_str} <span style="font-size:10px;color:#94a3b8;">{sc_cls}</span></td>
+  <td>{_n(vo2kg, ".0f")} ml/kg</td>
+  <td>{_n(pct_max, ".0f")}%</td>
+  <td>{hr}</td>
+  <td>{_n(rer, ".2f")}</td>
+  <td>{dur_str}</td>
+</tr>'''
+
+    h += '</tbody></table></div>'
+
+    # ═══════════════════════════════════════════════════════
+    # KINETICS ON — Domain cards
+    # ═══════════════════════════════════════════════════════
+    h += '<div class="card"><div class="section-title">Kinetyka ON — adaptacja VO₂ do wysiłku</div>'
+    h += '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+
+    # tau score mapping (0-100)
+    def tau_score(tau_val, domain):
+        if tau_val is None: return 0
+        if domain == 'MODERATE':
+            thresholds = [(15, 100), (25, 75), (40, 50), (60, 25)]
+        elif domain == 'HEAVY':
+            thresholds = [(20, 100), (35, 75), (50, 50), (70, 25)]
+        else:
+            return 30  # severe always slower
+        for t, s in thresholds:
+            if tau_val <= t: return s
+        return 10
+
+    for s in stages:
+        dom = s.get('domain', '?')
+        if dom not in ('MODERATE', 'HEAVY', 'SEVERE'): continue
+
+        tau = s.get('tau_on_s')
+        tau_cls = s.get('tau_class', '')
+        sc_pct = s.get('sc_pct', 0)
+        sc_cls = s.get('sc_class', '')
+        pct_max = s.get('pct_vo2max', 0)
+        speed = s.get('speed_kmh', 0)
+        
+        dom_css = {'MODERATE': 'domain-mod', 'HEAVY': 'domain-hvy', 'SEVERE': 'domain-sev'}
+        dom_label = {'MODERATE': 'Moderate', 'HEAVY': 'Heavy', 'SEVERE': 'Severe'}
+        dom_desc = {
+            'MODERATE': f'<VT1 — {speed} km/h',
+            'HEAVY': f'VT1↔VT2 — {speed} km/h',
+            'SEVERE': f'>VT2 — {speed} km/h',
+        }
+
+        ts = tau_score(tau, dom)
+        tau_bar_col = '#16a34a' if ts >= 75 else ('#d97706' if ts >= 50 else '#dc2626')
+        tau_bar_w = max(5, min(100, ts))
+
+        h += f'''<div class="domain-card {dom_css.get(dom, '')}">
+  <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:2px;">{dom_label.get(dom, dom)}</div>
+  <div style="font-size:10px;color:#94a3b8;margin-bottom:8px;">{dom_desc.get(dom, '')}</div>
+  <div style="font-size:28px;font-weight:800;color:#0f172a;">{_n(tau, ".0f")}s</div>
+  <div style="font-size:11px;margin-bottom:4px;">{badge_class(tau_cls)}</div>
+  <div class="tau-bar" style="background:#e5e7eb;">
+    <div style="width:{tau_bar_w}%;height:100%;border-radius:4px;background:{tau_bar_col};"></div>
+  </div>
+  <div style="margin-top:8px;font-size:11px;color:#64748b;">
+    SC: <b>{_n(sc_pct, ".1f")}%</b> ({sc_cls}) · {_n(pct_max, ".0f")}% VO₂max
+  </div>
+</div>'''
+
+    h += '</div>'
+
+    # tau ratio
+    tau_mod = kin_profile.get('tau_moderate')
+    tau_hvy = kin_profile.get('tau_heavy')
+    tau_ratio = kin_profile.get('tau_ratio_heavy_mod')
+    ratio_interp = kin_profile.get('tau_ratio_interpretation', '')
+    if tau_ratio:
+        h += f'<div style="margin-top:10px;font-size:12px;color:#334155;">τ ratio heavy/moderate = <b>{_n(tau_ratio, ".2f")}</b> (norma: 1.0–1.5) — {ratio_interp}</div>'
+    h += '</div>'
+
+    # ═══════════════════════════════════════════════════════
+    # SLOW COMPONENT
+    # ═══════════════════════════════════════════════════════
+    sc_hvy = kin_profile.get('sc_heavy_pct')
+    sc_hvy_cls = kin_profile.get('sc_heavy_class', '')
+    sc_sev = kin_profile.get('sc_severe_pct')
+    sc_sev_cls = kin_profile.get('sc_severe_class', '')
+    fiber_str = fiber.get('estimated_type_I_pct', '?')
+
+    h += f'''<div class="card">
+  <div class="section-title">Slow Component — ekonomia mięśniowa</div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:250px;">
+      <div style="font-size:12px;color:#64748b;margin-bottom:4px;">SC w domenie Heavy (powyżej VT1)</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;">
+        <span style="font-size:32px;font-weight:800;color:#0f172a;">{_n(sc_hvy, ".1f")}%</span>
+        {badge_class(sc_hvy_cls)}
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:4px;">SC w domenie Severe (powyżej VT2)</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+        <span style="font-size:24px;font-weight:700;color:#0f172a;">{_n(sc_sev, ".1f")}%</span>
+        {badge_class(sc_sev_cls)}
+      </div>
+      <div style="font-size:11px;color:#94a3b8;">Norma: 3–8% (heavy), 8–15% (severe). <3% = znakomita ekonomia</div>
+    </div>
+    <div style="flex:1;min-width:200px;background:#f8fafc;border-radius:8px;padding:14px;">
+      <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:6px;">Proxy profilu włókien mięśniowych</div>
+      <div style="font-size:11px;color:#334155;margin-bottom:4px;">Estymacja na podstawie SC (Barstow 1996)</div>
+      <div style="font-size:18px;font-weight:700;color:#2563eb;margin-bottom:4px;">{fiber_str} Typ I</div>
+      <div style="font-size:10px;color:#94a3b8;">Profil: {fiber_profile} · Pewność: {fiber.get("confidence", "LOW")}</div>
+      <div style="font-size:10px;color:#94a3b8;margin-top:4px;font-style:italic;">Pośrednia estymacja — nie zastępuje biopsji mięśniowej</div>
+    </div>
+  </div>
+</div>'''
+
+    # ═══════════════════════════════════════════════════════
+    # OFF-KINETICS — Recovery
+    # ═══════════════════════════════════════════════════════
+    valid_off = [o for o in off_ks if o.get('status') == 'OK']
+    if valid_off:
+        h += '<div class="card"><div class="section-title">Off-kinetics — recovery między stadiami</div>'
+        for ok in valid_off:
+            trans = ok.get('transition', '?')
+            tau_off = ok.get('tau_off_s')
+            tau_r2 = ok.get('tau_off_r2')
+            t_half = ok.get('t_half_s') or ok.get('t_half_from_tau_s')
+            rec_cls = ok.get('recovery_class', '')
+            pct_60 = ok.get('pct_recovered_60s')
+            pct_120 = ok.get('pct_recovered_120s')
+
+            h += f'''<div style="display:flex;gap:16px;align-items:center;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+  <div style="flex:0 0 100px;font-size:12px;font-weight:700;color:#0f172a;">{trans}</div>
+  <div style="flex:1;font-size:12px;color:#334155;">
+    τ_off={_n(tau_off, ".0f")}s (R²={_n(tau_r2, ".2f")}) · T½={_n(t_half, ".0f")}s · Rec 60s: {_n(pct_60, ".0f")}% / 120s: {_n(pct_120, ".0f")}%
+  </div>
+  <div>{badge_class(rec_cls)}</div>
+</div>'''
+        h += '</div>'
+
+    # ═══════════════════════════════════════════════════════
+    # E22: CROSS-CORRELATION SECTIONS
+    # ═══════════════════════════════════════════════════════
+
+    if e22 and e22.get('status') == 'OK':
+        stage_cx = e22.get('stage_cross', [])
+        composites = e22.get('composites', {})
+        hrr_data = e22.get('hrr', {})
+        nirs_data = e22.get('nirs', {})
+
+        # ── Drift Analysis Card ──
+        if stage_cx:
+            h += '<div class="card"><div class="section-title">Analiza driftów — Triple Drift Pattern</div>'
+            h += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;">'
+            h += '<th style="padding:6px;text-align:left;">Stadium</th>'
+            h += '<th style="padding:6px;text-align:center;">HR drift</th>'
+            h += '<th style="padding:6px;text-align:center;">VO₂ drift</th>'
+            h += '<th style="padding:6px;text-align:center;">O₂P drift</th>'
+            h += '<th style="padding:6px;text-align:center;">O₂P Stability</th>'
+            h += '<th style="padding:6px;text-align:center;">Pattern</th>'
+            h += '</tr></thead><tbody>'
+            pattern_colors = {
+                'STABLE': '#16a34a', 'METABOLIC_SC': '#d97706',
+                'MUSCLE_RECRUITMENT': '#ea580c', 'CARDIOVASCULAR': '#dc2626', 'MIXED': '#64748b'
+            }
+            for sc in stage_cx:
+                pat = sc.get('drift_pattern', 'MIXED')
+                pcol = pattern_colors.get(pat, '#64748b')
+                dom = sc.get('domain', '')
+                dcol = {'MODERATE': '#3b82f6', 'HEAVY': '#d97706', 'SEVERE': '#dc2626'}.get(dom, '#64748b')
+                h += f'<tr style="border-top:1px solid #f1f5f9;">'
+                h += f'<td style="padding:6px;"><span style="color:{dcol};font-weight:700;">S{sc.get("stage_num")} {dom}</span><br><span style="font-size:10px;color:#94a3b8;">{sc.get("speed_kmh","")} km/h</span></td>'
+                h += f'<td style="padding:6px;text-align:center;font-weight:600;">{sc.get("hr_drift_bpm","-"):+.1f} bpm</td>'
+                h += f'<td style="padding:6px;text-align:center;font-weight:600;">{sc.get("vo2_drift_mlmin","-"):+.0f} ml/min</td>'
+                h += f'<td style="padding:6px;text-align:center;font-weight:600;">{sc.get("o2p_drift_ml","-"):+.2f} ml</td>'
+                stab = sc.get('o2p_stability')
+                stab_str = f'{stab:.3f}' if stab else '-'
+                stab_cls = sc.get('o2p_stability_class', '')
+                stab_col = '#16a34a' if stab_cls == 'STABLE' else '#d97706' if stab_cls == 'MILD_DRIFT' else '#dc2626' if stab_cls == 'CARDIAC_DRIFT' else '#64748b'
+                h += f'<td style="padding:6px;text-align:center;"><span style="color:{stab_col};font-weight:600;">{stab_str}</span></td>'
+                h += f'<td style="padding:6px;text-align:center;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;background:{pcol}15;color:{pcol};border:1px solid {pcol}40;">{pat}</span></td>'
+                h += '</tr>'
+            h += '</tbody></table>'
+
+            # Interpretation note
+            dominant_pattern = max(set(sc.get('drift_pattern','MIXED') for sc in stage_cx), key=lambda p: sum(1 for s in stage_cx if s.get('drift_pattern') == p))
+            if dominant_pattern == 'METABOLIC_SC':
+                h += '<div style="margin-top:8px;padding:8px 12px;background:#fffbeb;border-radius:6px;font-size:11px;color:#92400e;">💡 Dominujący wzorzec: <b>Metaboliczny SC</b> — HR i VO₂ rosną, ale O₂ pulse stabilny. To oznacza rekrutację Type II fiber bez cardiac drift. Cardiac output jest stabilny.</div>'
+            elif dominant_pattern == 'MUSCLE_RECRUITMENT':
+                h += '<div style="margin-top:8px;padding:8px 12px;background:#fef3c7;border-radius:6px;font-size:11px;color:#92400e;">💡 Dominujący wzorzec: <b>Rekrutacja mięśniowa</b> — VO₂ driftuje znacznie bardziej niż HR. O₂ pulse rośnie = SV rośnie. Limitacja obwodowa (mięśniowa), nie centralna.</div>'
+            elif dominant_pattern == 'CARDIOVASCULAR':
+                h += '<div style="margin-top:8px;padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:11px;color:#991b1b;">⚠️ Dominujący wzorzec: <b>Cardiovascular drift</b> — HR↑, VO₂↑, O₂ pulse↓. Możliwe przyczyny: dehydracja, termoregulacja, niska wydolność sercowa.</div>'
+            h += '</div>'
+
+        # ── Metabolic Efficiency + Economy Durability Card ──
+        mei_avg = composites.get('mei_avg')
+        if mei_avg is not None or stage_cx:
+            h += '<div class="card"><div class="section-title">Efektywność metaboliczna & ekonomia</div>'
+            h += '<div style="display:flex;gap:16px;flex-wrap:wrap;">'
+
+            # MEI gauge
+            mei_cls = composites.get('mei_class', '?')
+            mei_col = '#16a34a' if mei_cls == 'EXCELLENT' else '#d97706' if mei_cls == 'GOOD' else '#dc2626'
+            h += f'''<div style="flex:1;min-width:200px;text-align:center;padding:16px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;letter-spacing:0.5px;">Metabolic Efficiency Index</div>
+  <div style="font-size:32px;font-weight:800;color:{mei_col};">{_n(mei_avg, ".2f")}</div>
+  <div style="font-size:11px;color:{mei_col};font-weight:600;">{mei_cls}</div>
+  <div style="font-size:10px;color:#94a3b8;margin-top:4px;">&lt;3.0 excellent · 3–6 good · &gt;6 flag</div>
+</div>'''
+
+            # Economy durability per stage
+            h += '<div style="flex:2;min-width:300px;">'
+            h += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;">'
+            h += '<th style="padding:5px;text-align:left;">Stadium</th>'
+            h += '<th style="padding:5px;text-align:center;">RER drift</th>'
+            h += '<th style="padding:5px;text-align:center;">MEI</th>'
+            h += '<th style="padding:5px;text-align:center;">Economy loss</th>'
+            h += '<th style="padding:5px;text-align:center;">VE/VCO₂</th>'
+            h += '</tr></thead><tbody>'
+            for sc in stage_cx:
+                dom = sc.get('domain', '')
+                dcol = {'MODERATE': '#3b82f6', 'HEAVY': '#d97706', 'SEVERE': '#dc2626'}.get(dom, '#64748b')
+                eco_loss = sc.get('economy_loss_pct')
+                eco_col = '#16a34a' if eco_loss is not None and eco_loss < 5 else '#d97706' if eco_loss is not None and eco_loss < 8 else '#dc2626'
+                h += f'<tr style="border-top:1px solid #f1f5f9;">'
+                h += f'<td style="padding:5px;color:{dcol};font-weight:600;">S{sc.get("stage_num")} {dom}</td>'
+                rd = sc.get('rer_drift')
+                h += f'<td style="padding:5px;text-align:center;">{rd:+.3f}</td>' if rd is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                mi = sc.get('metabolic_efficiency_idx')
+                h += f'<td style="padding:5px;text-align:center;">{_n(mi, ".2f")}</td>'
+                h += f'<td style="padding:5px;text-align:center;color:{eco_col};font-weight:600;">{_n(eco_loss, ".1f")}%</td>' if eco_loss is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                vv = sc.get('ve_vco2_ratio')
+                h += f'<td style="padding:5px;text-align:center;">{_n(vv, ".1f")}</td>'
+                h += '</tr>'
+            h += '</tbody></table></div>'
+            h += '</div></div>'
+
+        # ── Recovery Integration Card ──
+        if hrr_data.get('hrr_1min_bpm') is not None:
+            h += '<div class="card"><div class="section-title">Recovery Integration — HRR ↔ τ off-kinetics</div>'
+            h += '<div style="display:flex;gap:16px;flex-wrap:wrap;">'
+
+            # HRR box
+            hrr1 = hrr_data.get('hrr_1min_bpm', 0)
+            hrr3 = hrr_data.get('hrr_3min_bpm')
+            hrr_cls = hrr_data.get('hrr_class', '?')
+            hrr_col = '#16a34a' if hrr_cls in ('EXCELLENT','GOOD') else '#d97706' if hrr_cls == 'NORMAL' else '#dc2626'
+            h += f'''<div style="flex:1;text-align:center;padding:14px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">HRR 1 min</div>
+  <div style="font-size:28px;font-weight:800;color:{hrr_col};">{hrr1:.0f} <span style="font-size:14px;">bpm</span></div>
+  <div style="font-size:11px;color:{hrr_col};">{hrr_cls}</div>'''
+            if hrr3: h += f'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">HRR 3min: {hrr3:.0f} bpm</div>'
+            h += '</div>'
+
+            # τ_off box
+            tau_off = hrr_data.get('tau_off_mean_s')
+            if tau_off:
+                h += f'''<div style="flex:1;text-align:center;padding:14px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">τ off-kinetics (mean)</div>
+  <div style="font-size:28px;font-weight:800;color:#0f172a;">{tau_off:.0f} <span style="font-size:14px;">s</span></div>
+  <div style="font-size:10px;color:#94a3b8;">Metabolic recovery speed</div>
+</div>'''
+
+            # Dissociation box
+            rd = hrr_data.get('recovery_dissociation')
+            rtype = hrr_data.get('recovery_type', '?')
+            rtype_pl = hrr_data.get('recovery_type_pl', '')
+            rd_col = '#16a34a' if rtype in ('BALANCED_FAST','BALANCED') else '#d97706' if rtype in ('AUTONOMIC_FAST','METABOLIC_FAST') else '#dc2626'
+            if rd is not None:
+                h += f'''<div style="flex:1;text-align:center;padding:14px;background:#f8fafc;border-radius:8px;border:2px solid {rd_col}30;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">Recovery Dissociation</div>
+  <div style="font-size:28px;font-weight:800;color:{rd_col};">{rd:.2f}</div>
+  <div style="font-size:11px;color:{rd_col};font-weight:600;">{rtype}</div>
+  <div style="font-size:10px;color:#64748b;margin-top:2px;">{rtype_pl}</div>
+</div>'''
+
+            h += '</div></div>'
+
+        # ── Breathing Pattern Card ──
+        if stage_cx and any(sc.get('bf_mean') for sc in stage_cx):
+            h += '<div class="card"><div class="section-title">Wzorzec oddechowy per domain</div>'
+            h += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;">'
+            h += '<th style="padding:5px;text-align:left;">Stadium</th>'
+            h += '<th style="padding:5px;text-align:center;">BF [/min]</th>'
+            h += '<th style="padding:5px;text-align:center;">VT [L]</th>'
+            h += '<th style="padding:5px;text-align:center;">VE [L/min]</th>'
+            h += '<th style="padding:5px;text-align:center;">BF/VT ratio</th>'
+            h += '<th style="padding:5px;text-align:center;">VT drift</th>'
+            h += '</tr></thead><tbody>'
+            prev_vt = None
+            for sc in stage_cx:
+                dom = sc.get('domain', '')
+                dcol = {'MODERATE': '#3b82f6', 'HEAVY': '#d97706', 'SEVERE': '#dc2626'}.get(dom, '#64748b')
+                vt_now = sc.get('vt_mean_L')
+                vt_plateau = ''
+                if prev_vt and vt_now and abs(vt_now - prev_vt) < 0.1:
+                    vt_plateau = ' ⚠️ plateau'
+                prev_vt = vt_now
+                h += f'<tr style="border-top:1px solid #f1f5f9;">'
+                h += f'<td style="padding:5px;color:{dcol};font-weight:600;">S{sc.get("stage_num")} {dom}</td>'
+                h += f'<td style="padding:5px;text-align:center;">{_n(sc.get("bf_mean"), ".1f")}</td>'
+                h += f'<td style="padding:5px;text-align:center;">{_n(vt_now, ".2f")}{vt_plateau}</td>'
+                h += f'<td style="padding:5px;text-align:center;">{_n(sc.get("ve_mean"), ".1f")}</td>'
+                h += f'<td style="padding:5px;text-align:center;">{_n(sc.get("bf_vt_ratio"), ".0f")}%</td>'
+                vt_d = sc.get('vt_drift_L')
+                h += f'<td style="padding:5px;text-align:center;">{vt_d:+.3f}L</td>' if vt_d is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                h += '</tr>'
+            h += '</tbody></table></div>'
+
+        # ── NIRS / SmO₂ Kinetics Card ──
+        if nirs_data.get('available') and nirs_data.get('stages'):
+            nirs_stages = [ns for ns in nirs_data['stages'] if ns.get('smo2_mean') is not None]
+            if nirs_stages:
+                ch_name = nirs_data.get('channel', 'SmO2')
+                smo2_rest = nirs_data.get('smo2_rest')
+                smo2_min = nirs_data.get('smo2_min')
+                desat_tot = nirs_data.get('desat_total')
+
+                h += f'<div class="card"><div class="section-title">SmO₂ / NIRS — kinetyka ekstrakcji O₂ ({ch_name})</div>'
+
+                # Summary boxes
+                h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">'
+                if smo2_rest:
+                    h += f'''<div style="flex:1;text-align:center;padding:10px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">SmO₂ REST</div>
+  <div style="font-size:24px;font-weight:800;color:#16a34a;">{smo2_rest}%</div>
+</div>'''
+                if smo2_min:
+                    min_col = '#dc2626' if smo2_min < 30 else '#d97706' if smo2_min < 50 else '#16a34a'
+                    h += f'''<div style="flex:1;text-align:center;padding:10px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">SmO₂ MIN</div>
+  <div style="font-size:24px;font-weight:800;color:{min_col};">{smo2_min}%</div>
+</div>'''
+                if desat_tot:
+                    h += f'''<div style="flex:1;text-align:center;padding:10px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">Desaturacja</div>
+  <div style="font-size:24px;font-weight:800;color:#d97706;">{desat_tot}%</div>
+</div>'''
+                # Extraction matching from NIRS
+                matchings = [ns.get('extraction_matching') for ns in nirs_stages if ns.get('extraction_matching')]
+                if matchings:
+                    avg_match = sum(matchings) / len(matchings)
+                    m_col = '#16a34a' if 0.7 <= avg_match <= 1.3 else '#d97706'
+                    h += f'''<div style="flex:1;text-align:center;padding:10px;background:#f8fafc;border-radius:8px;border:2px solid {m_col}30;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">O₂ Extraction Match</div>
+  <div style="font-size:24px;font-weight:800;color:{m_col};">{avg_match:.2f}</div>
+  <div style="font-size:10px;color:#94a3b8;">τ_SmO₂ / τ_VO₂ (≈1.0 = matched)</div>
+</div>'''
+                h += '</div>'
+
+                # Per-stage table
+                h += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;">'
+                h += '<th style="padding:5px;text-align:left;">Stadium</th>'
+                h += '<th style="padding:5px;text-align:center;">SmO₂ mean</th>'
+                h += '<th style="padding:5px;text-align:center;">SmO₂ min</th>'
+                h += '<th style="padding:5px;text-align:center;">Drift</th>'
+                h += '<th style="padding:5px;text-align:center;">Desat slope</th>'
+                h += '<th style="padding:5px;text-align:center;">τ SmO₂ est</th>'
+                h += '<th style="padding:5px;text-align:center;">τ VO₂</th>'
+                h += '<th style="padding:5px;text-align:center;">Match</th>'
+                h += '</tr></thead><tbody>'
+                for ns in nirs_stages:
+                    dom = ns.get('domain', '')
+                    dcol = {'MODERATE': '#3b82f6', 'HEAVY': '#d97706', 'SEVERE': '#dc2626'}.get(dom, '#64748b')
+                    match = ns.get('extraction_matching')
+                    mc = '#16a34a' if match and 0.7 <= match <= 1.3 else '#d97706' if match else '#94a3b8'
+                    h += f'<tr style="border-top:1px solid #f1f5f9;">'
+                    h += f'<td style="padding:5px;color:{dcol};font-weight:600;">S{ns.get("stage_num")} {dom}</td>'
+                    h += f'<td style="padding:5px;text-align:center;">{_n(ns.get("smo2_mean"), ".1f")}%</td>'
+                    h += f'<td style="padding:5px;text-align:center;">{_n(ns.get("smo2_min"), ".1f")}%</td>'
+                    dr = ns.get('smo2_drift')
+                    h += f'<td style="padding:5px;text-align:center;">{dr:+.1f}%</td>' if dr is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                    ds = ns.get('desat_slope_pct_min')
+                    h += f'<td style="padding:5px;text-align:center;">{ds:+.2f}%/min</td>' if ds is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                    ts = ns.get('tau_smo2_est_s')
+                    h += f'<td style="padding:5px;text-align:center;">{ts:.0f}s</td>' if ts is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                    tv = ns.get('tau_on_vo2')
+                    h += f'<td style="padding:5px;text-align:center;">{tv:.0f}s</td>' if tv is not None else '<td style="padding:5px;text-align:center;">-</td>'
+                    h += f'<td style="padding:5px;text-align:center;color:{mc};font-weight:700;">{match:.2f}</td>' if match else '<td style="padding:5px;text-align:center;">-</td>'
+                    h += '</tr>'
+                h += '</tbody></table>'
+
+                # Interpretation
+                if nirs_data.get('bp1_vs_vt1_s') is not None:
+                    bp1_diff = nirs_data['bp1_vs_vt1_s']
+                    agree = abs(bp1_diff) < 60
+                    h += f'<div style="margin-top:8px;padding:8px 12px;background:{"#f0fdf4" if agree else "#fef3c7"};border-radius:6px;font-size:11px;color:{"#166534" if agree else "#92400e"};">'
+                    h += f'{"✅" if agree else "⚠️"} SmO₂ breakpoint vs VT1: {bp1_diff:+.0f}s {"(zgoda)" if agree else "(rozbieżność)"}.'
+                    if matchings:
+                        avg_m = sum(matchings) / len(matchings)
+                        if avg_m > 1.3:
+                            h += ' Ekstrakcja wolniejsza niż delivery → limitacja obwodowa.'
+                        elif avg_m < 0.7:
+                            h += ' Ekstrakcja szybsza niż delivery → bottleneck centralny.'
+                        else:
+                            h += ' Delivery i ekstrakcja dobrze dopasowane.'
+                    h += '</div>'
+                h += '</div>'
+
+        # ── Fingerprint + Trainability Card ──
+        fp = composites.get('fingerprint', {})
+        tr = composites.get('trainability', {})
+        if fp:
+            h += '<div class="card"><div class="section-title">Aerobic Fitness Fingerprint</div>'
+            h += '<div style="display:flex;gap:16px;flex-wrap:wrap;">'
+
+            # Fingerprint bars
+            h += '<div style="flex:2;min-width:300px;">'
+            for dim_name, dim_key, dim_emoji in [
+                ('Capacity (VO₂max)', 'capacity', '🫀'),
+                ('Thresholds (VT1/VT2)', 'thresholds', '📈'),
+                ('Kinetics (τ/SC)', 'kinetics', '⚡'),
+                ('Recovery (HRR/τ_off)', 'recovery', '💚'),
+            ]:
+                val = fp.get(dim_key, 0)
+                bar_col = '#16a34a' if val >= 70 else '#d97706' if val >= 40 else '#dc2626'
+                h += f'''<div style="margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">
+    <span>{dim_emoji} {dim_name}</span><span style="font-weight:700;color:{bar_col};">{val}/100</span>
+  </div>
+  <div style="background:#f1f5f9;border-radius:4px;height:10px;overflow:hidden;">
+    <div style="width:{val}%;height:100%;background:{bar_col};border-radius:4px;"></div>
+  </div>
+</div>'''
+            h += '</div>'
+
+            # Trainability gauge
+            if tr.get('total_score') is not None:
+                ts = tr['total_score']
+                tc = tr.get('class', '?')
+                tc_pl = tr.get('class_pl', '')
+                tc_col = '#dc2626' if tc == 'HIGH' else '#d97706' if tc == 'MODERATE' else '#16a34a'
+                h += f'''<div style="flex:1;min-width:180px;text-align:center;padding:16px;background:#f8fafc;border-radius:8px;">
+  <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;letter-spacing:0.5px;">Trainability Index</div>
+  <div style="font-size:36px;font-weight:800;color:{tc_col};">{ts}</div>
+  <div style="font-size:12px;color:{tc_col};font-weight:600;">{tc}</div>
+  <div style="font-size:10px;color:#64748b;margin-top:4px;">{tc_pl}</div>
+  <div style="font-size:10px;color:#94a3b8;margin-top:6px;">0=optymalny · 100=duży potencjał</div>
+</div>'''
+            h += '</div></div>'
+
+        # ── Performance Model Card ──
+        perf = composites.get('performance', {})
+        if perf and perf.get('sport'):
+            sport_n = perf['sport']
+            h += f'<div class="card"><div class="section-title">Performance Model — {sport_n.upper()}</div>'
+            if sport_n == 'hyrox':
+                h += f'''<div style="display:flex;gap:12px;flex-wrap:wrap;">
+  <div style="flex:1;text-align:center;padding:12px;background:#f8fafc;border-radius:8px;">
+    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">Transition Tax</div>
+    <div style="font-size:24px;font-weight:800;color:#d97706;">{perf.get("transition_tax_s",0):.0f}s</div>
+    <div style="font-size:10px;color:#94a3b8;">τ × 8 transitions × 0.7</div>
+  </div>
+  <div style="flex:1;text-align:center;padding:12px;background:#f8fafc;border-radius:8px;">
+    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">Sustainable Run Pace</div>
+    <div style="font-size:24px;font-weight:800;color:#3b82f6;">{perf.get("sustainable_pace_kmh",0):.1f} km/h</div>
+    <div style="font-size:10px;color:#94a3b8;">88% VT2 / economy loss</div>
+  </div>
+  <div style="flex:1;text-align:center;padding:12px;background:#f8fafc;border-radius:8px;">
+    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">Run Segments Total</div>
+    <div style="font-size:24px;font-weight:800;color:#0f172a;">{perf.get("run_segments_min",0):.1f} min</div>
+    <div style="font-size:10px;color:#94a3b8;">8 × 1km @ sustainable pace</div>
+  </div>
+</div>
+<div style="margin-top:8px;padding:8px 12px;background:#f0f9ff;border-radius:6px;font-size:11px;color:#1e40af;">
+  📊 {perf.get("model_note","")}. Poprawa τ o 5s = ~28s mniej transition tax.
+</div>'''
+            elif sport_n == 'run':
+                h += '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+                if perf.get('half_marathon_pace_kmh'):
+                    hm_min = int(perf['half_marathon_time_min'])
+                    hm_sec = int((perf['half_marathon_time_min'] - hm_min) * 60)
+                    h += f'''<div style="flex:1;text-align:center;padding:12px;background:#f8fafc;border-radius:8px;">
+    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">Half Marathon</div>
+    <div style="font-size:24px;font-weight:800;color:#3b82f6;">{hm_min}:{hm_sec:02d}</div>
+    <div style="font-size:10px;color:#94a3b8;">{perf["half_marathon_pace_kmh"]:.1f} km/h</div>
+  </div>'''
+                if perf.get('_10k_pace_kmh'):
+                    t10 = perf['_10k_time_min']
+                    t10_m = int(t10); t10_s = int((t10 - t10_m) * 60)
+                    h += f'''<div style="flex:1;text-align:center;padding:12px;background:#f8fafc;border-radius:8px;">
+    <div style="font-size:10px;text-transform:uppercase;color:#94a3b8;">10K</div>
+    <div style="font-size:24px;font-weight:800;color:#16a34a;">{t10_m}:{t10_s:02d}</div>
+    <div style="font-size:10px;color:#94a3b8;">{perf["_10k_pace_kmh"]:.1f} km/h</div>
+  </div>'''
+                h += '</div>'
+            h += '</div>'
+
+    # ═══════════════════════════════════════════════════════
+    # LIMITATION DIAGNOSIS (enhanced with E22 triangulation)
+    # ═══════════════════════════════════════════════════════
+    h += f'''<div class="card">
+  <div class="section-title">Diagnoza limitacji</div>
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+    <div style="flex:0 0 auto;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">{badge_class(lim_primary)}</div>
+    </div>
+    <div style="flex:1;min-width:250px;">'''
+
+    for ev in lim_evidence:
+        h += f'<div style="font-size:12px;color:#334155;padding:2px 0;">• {esc(str(ev))}</div>'
+
+    h += '</div></div>'
+
+    # E22 Limitation Triangulation
+    if e22 and e22.get('status') == 'OK':
+        lt = e22.get('composites', {}).get('limitation_triangle', {})
+        vent = e22.get('ventilatory', {})
+
+        if lt.get('n_signals', 0) >= 2:
+            cp = lt.get('central_pct', 0)
+            pp = lt.get('peripheral_pct', 0)
+            ip = lt.get('integrated_pct', 0)
+            conf = lt.get('confidence', 0)
+            prim = lt.get('primary', '?')
+            prim_pl = lt.get('primary_pl', '')
+
+            h += '<div style="margin-top:12px;padding:12px;background:#f8fafc;border-radius:8px;">'
+            h += '<div style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:6px;">🔺 Multi-signal Limitation Triangulation</div>'
+
+            # 3 bars
+            for label, val, col in [('Centralna', cp, '#dc2626'), ('Obwodowa', pp, '#d97706'), ('Zintegrowana', ip, '#16a34a')]:
+                is_prim = (label == 'Centralna' and prim == 'CENTRAL') or (label == 'Obwodowa' and prim == 'PERIPHERAL') or (label == 'Zintegrowana' and prim == 'INTEGRATED')
+                bw = f'border:2px solid {col};' if is_prim else ''
+                h += f'''<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+  <span style="width:90px;font-size:11px;color:#64748b;">{label}</span>
+  <div style="flex:1;background:#f1f5f9;border-radius:3px;height:14px;overflow:hidden;{bw}">
+    <div style="width:{val}%;height:100%;background:{col};border-radius:3px;"></div>
+  </div>
+  <span style="width:35px;text-align:right;font-size:11px;font-weight:700;color:{col};">{val}%</span>
+</div>'''
+
+            h += f'<div style="font-size:11px;color:#64748b;margin-top:4px;">Dominacja: <b style="color:#0f172a;">{prim_pl}</b> (confidence: {conf}%, sygnałów: {lt.get("n_signals",0)})</div>'
+            h += '</div>'
+
+        # Ventilatory Integration Index
+        if vent.get('kinetic_ventilatory_index'):
+            kvi = vent['kinetic_ventilatory_index']
+            integ = vent.get('integration', '?')
+            integ_pl = vent.get('integration_pl', '')
+            ve_slope = vent.get('ve_vco2_slope', 0)
+            tau_m = vent.get('tau_mod', 0)
+
+            integ_col = '#16a34a' if integ == 'FULLY_INTEGRATED' else '#d97706' if integ in ('VQ_MISMATCH','PERIPHERAL_LIMITED') else '#dc2626'
+            h += f'''<div style="margin-top:8px;padding:10px 12px;background:{integ_col}08;border:1px solid {integ_col}30;border-radius:6px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <span style="font-size:11px;font-weight:700;color:{integ_col};">Kinetic-Ventilatory Index: {kvi:.2f}</span>
+      <span style="font-size:10px;color:#64748b;margin-left:8px;">({integ_pl})</span>
+    </div>
+    <div style="font-size:10px;color:#94a3b8;">τ={tau_m:.0f}s / VE/VCO₂={ve_slope:.1f}</div>
+  </div>
+</div>'''
+
+    h += '</div>'
+
+    # ═══════════════════════════════════════════════════════
+    # TRAINING PRIORITIES
+    # ═══════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════
+    # TRAINING PRIORITIES — expanded & sport-contextualized
+    # ═══════════════════════════════════════════════════════
+    
+    # Build comprehensive training recommendations based on kinetic profile
+    tau_mod = kin_profile.get('tau_moderate')
+    tau_hvy = kin_profile.get('tau_heavy')
+    tau_mod_cls = kin_profile.get('tau_moderate_class', '')
+    tau_hvy_cls = kin_profile.get('tau_heavy_class', '')
+    sc_hvy = kin_profile.get('sc_heavy_pct', 0)
+    sc_hvy_cls = kin_profile.get('sc_heavy_class', '')
+    sc_sev = kin_profile.get('sc_severe_pct', 0)
+    tau_ratio = kin_profile.get('tau_ratio_heavy_mod')
+    heavy_width = kin_profile.get('heavy_zone_width_pct', 0)
+    vt1_pct = kin_profile.get('vt1_pct_vo2max', 0)
+
+    lim_primary = limitation.get('primary', '?')
+    rec_class = e21.get('summary', {}).get('recovery_class')
+
+    # Determine sport-specific emphasis
+    sport_emphasis = {
+        'hyrox': {'repeat_effort': True, 'endurance_base': True, 'recovery_speed': True,
+                  'economy_focus': 'running segments', 'power_focus': 'station work'},
+        'crossfit': {'repeat_effort': True, 'endurance_base': False, 'recovery_speed': True,
+                     'economy_focus': 'metcons', 'power_focus': 'strength WODs'},
+        'run': {'repeat_effort': False, 'endurance_base': True, 'recovery_speed': False,
+                'economy_focus': 'running economy', 'power_focus': None},
+        'triathlon': {'repeat_effort': False, 'endurance_base': True, 'recovery_speed': True,
+                      'economy_focus': 'transition efficiency', 'power_focus': 'bike power'},
+        'soccer': {'repeat_effort': True, 'endurance_base': True, 'recovery_speed': True,
+                   'economy_focus': 'repeat sprint', 'power_focus': 'explosive actions'},
+        'mma': {'repeat_effort': True, 'endurance_base': True, 'recovery_speed': True,
+                'economy_focus': 'round pacing', 'power_focus': 'exchange bursts'},
+    }.get(sport, {'repeat_effort': True, 'endurance_base': True, 'recovery_speed': True,
+                  'economy_focus': 'general', 'power_focus': None})
+
+    h += '<div class="card"><div class="section-title">Priorytety treningowe — kontekst kinetyczny</div>'
+
+    # Sport context intro
+    h += f'''<div style="background:#f0f9ff;border-radius:8px;padding:12px 16px;margin-bottom:14px;border-left:4px solid #3b82f6;">
+  <div style="font-size:12px;font-weight:700;color:#1e40af;margin-bottom:4px;">📋 Kontekst dyscypliny: {sport_label}</div>
+  <div style="font-size:12px;color:#334155;">Poniższe rekomendacje uwzględniają wymagania {sport_label.split(" ",1)[-1] if " " in sport_label else sport} — '''
+
+    if sport_emphasis.get('repeat_effort'):
+        h += f'zdolność do powtarzania wysiłków, szybka recovery między seriami'
+    else:
+        h += f'ekonomia wysiłku, utrzymanie stabilnego steady-state'
+    if sport_emphasis.get('recovery_speed'):
+        h += f', optymalizacja off-kinetics.'
+    else:
+        h += '.'
+    h += '</div></div>'
+
+    # ── Priority blocks ──
+    priority_num = 0
+
+    # PRIORITY 1: τ moderate optimization
+    if tau_mod and tau_mod_cls in ('TRAINED', 'ACTIVE', 'SLOW'):
+        priority_num += 1
+        if tau_mod_cls == 'TRAINED':
+            target_tau = 16
+            urgency = 'ROZWÓJ'
+            urgency_col = '#2563eb'
+            methods = [
+                ('SIT — Sprint Interval Training', f'4–6× 30s all-out / 4min recovery. Na bieżni: {vt1_speed}+ km/h sprint.', 'Rekrutacja Type II + stymulacja mitochondrialna — najskuteczniejszy bodziec na τ (Bailey 2009)'),
+                ('Priming — podwójne rozgrzewki', f'6min @ {_n(vt1_speed, ".0f")} km/h → 10min rest → 6min @ {_n(vt1_speed, ".0f")} km/h przed wysiłkiem głównym.', 'Przyspiesza kinetykę VO₂ o 15–25% w kolejnym wysiłku (Burnley & Jones 2007)'),
+                ('Tempo repeats', f'4–6× 4min @ {_n(vt2_speed, ".1f")}–{_n(float(vt2_speed)*1.02 if vt2_speed else 0, ".1f")} km/h / 2min jog.', 'Stymulacja heavy→severe transition, poprawa τ i VT2'),
+            ]
+        elif tau_mod_cls == 'ACTIVE':
+            target_tau = 25
+            urgency = 'PRIORYTET'
+            urgency_col = '#d97706'
+            methods = [
+                ('HIIT klasyczny', f'6–8× 3min @ {_n(float(vt2_speed)*0.95 if vt2_speed else 0, ".1f")} km/h / 2min active recovery.', 'Poprawa O₂ delivery + mitochondrialna biogeneza'),
+                ('Fartlek z progresją', f'30min z naprzemiennymi segmentami: 3min @ {_n(vt1_speed, ".0f")} / 2min @ {_n(vt2_speed, ".0f")} km/h.', 'Naturalna stymulacja on-kinetics w zmiennych warunkach'),
+                ('Baza aerobowa Z2', f'60–90min @ {_n(float(vt1_speed)*0.85 if vt1_speed else 0, ".0f")}–{_n(float(vt1_speed)*0.92 if vt1_speed else 0, ".0f")} km/h (RER <0.90).', 'Fundament — gęstość kapilarna i mitochondrialna'),
+            ]
+        else:  # SLOW
+            target_tau = 35
+            urgency = 'KRYTYCZNY'
+            urgency_col = '#dc2626'
+            methods = [
+                ('Base building Z2', f'Minimum 4×/tyg 45–90min @ {_n(float(vt1_speed)*0.80 if vt1_speed else 0, ".0f")}–{_n(float(vt1_speed)*0.90 if vt1_speed else 0, ".0f")} km/h.', 'Gęstość kapilarna i mitochondrialna biogeneza — bez tego dalsze interwały nieefektywne'),
+                ('Sweet spot', f'3–4× 8min @ {_n(float(vt1_speed)*1.0 if vt1_speed else 0, ".0f")}–{_n(float(vt2_speed)*0.95 if vt2_speed else 0, ".0f")} km/h / 3min easy.', 'Optymalna stymulacja przy zarządzalnym obciążeniu'),
+            ]
+
+        h += f'''<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;border-left:4px solid {urgency_col};">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div>
+      <span style="font-size:18px;font-weight:800;color:#0f172a;">#{priority_num}</span>
+      <span style="font-size:14px;font-weight:700;color:#0f172a;margin-left:8px;">Poprawa kinetyki ON (τ moderate)</span>
+    </div>
+    <span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:{urgency_col}15;color:{urgency_col};border:1px solid {urgency_col}40;">{urgency}</span>
+  </div>
+  <div style="display:flex;gap:20px;margin-bottom:10px;font-size:12px;">
+    <div><span style="color:#64748b;">Aktualnie:</span> <b>{_n(tau_mod, ".0f")}s</b> ({tau_mod_cls})</div>
+    <div><span style="color:#64748b;">Cel:</span> <b>{target_tau}s</b> (ELITE)</div>
+    <div><span style="color:#64748b;">Oczekiwany czas:</span> <b>6–12 tyg</b></div>
+  </div>'''
+
+        for method_name, prescription, rationale in methods:
+            h += f'''<div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 {method_name}</div>
+    <div style="font-size:12px;color:#334155;margin-bottom:2px;">{prescription}</div>
+    <div style="font-size:10px;color:#94a3b8;font-style:italic;">{rationale}</div>
+  </div>'''
+
+        # Frequency
+        freq = '1–2×/tyg SIT + 1×/tyg tempo' if tau_mod_cls == 'TRAINED' else ('2–3×/tyg HIIT/tempo' if tau_mod_cls == 'ACTIVE' else '4×/tyg base + 1×/tyg sweet spot')
+        h += f'<div style="font-size:11px;color:#475569;margin-top:8px;">📅 <b>Częstotliwość:</b> {freq}</div>'
+        h += '</div>'
+
+    # PRIORITY 2: τ heavy (if different class than moderate)
+    if tau_hvy and tau_hvy_cls != tau_mod_cls and tau_hvy_cls in ('ACTIVE', 'SLOW'):
+        priority_num += 1
+        h += f'''<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;border-left:4px solid #d97706;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div>
+      <span style="font-size:18px;font-weight:800;color:#0f172a;">#{priority_num}</span>
+      <span style="font-size:14px;font-weight:700;color:#0f172a;margin-left:8px;">Poprawa kinetyki Heavy domain (τ heavy)</span>
+    </div>
+    <span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:#d9770615;color:#d97706;border:1px solid #d9770640;">PRIORYTET</span>
+  </div>
+  <div style="display:flex;gap:20px;margin-bottom:10px;font-size:12px;">
+    <div><span style="color:#64748b;">Aktualnie:</span> <b>{_n(tau_hvy, ".0f")}s</b> ({tau_hvy_cls})</div>
+    <div><span style="color:#64748b;">Cel:</span> <b>25s</b> (TRAINED)</div>
+  </div>
+  <div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Threshold intervals</div>
+    <div style="font-size:12px;color:#334155;">4–6× 5min @ {_n(vt2_speed, ".0f")} km/h (próg VT2) / 3min active recovery @ {_n(float(vt1_speed)*0.85 if vt1_speed else 0, ".0f")} km/h.</div>
+  </div>
+  <div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Heavy domain repeats</div>
+    <div style="font-size:12px;color:#334155;">6–8× 3min @ {_n(float(vt1_speed)*1.05 if vt1_speed else 0, ".1f")}–{_n(float(vt2_speed)*0.95 if vt2_speed else 0, ".1f")} km/h / 2min easy.</div>
+    <div style="font-size:10px;color:#94a3b8;font-style:italic;">Bezpośrednia stymulacja heavy domain — poprawa O₂ extraction i kapilaryzacji</div>
+  </div>
+</div>'''
+
+    # PRIORITY 3: SC management (show differently based on current level)
+    priority_num += 1
+    if sc_hvy_cls in ('HIGH', 'VERY_HIGH'):
+        sc_urgency = 'PRIORYTET'
+        sc_col = '#ea580c'
+        sc_methods = f'''<div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Trening bazowy Z2 + ekonomia</div>
+    <div style="font-size:12px;color:#334155;">Zwiększ objętość Z2 o 15–20%. 4–5×/tyg 45–90min @ RER &lt;0.88.</div>
+    <div style="font-size:10px;color:#94a3b8;font-style:italic;">Wysoki SC ({_n(sc_hvy, ".1f")}%) = rekrutacja Type II zbyt wcześnie → buduj bazę mitochondrialną Type I</div>
+  </div>
+  <div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Plyometryka + stiffness</div>
+    <div style="font-size:12px;color:#334155;">2×/tyg: skip drills, bounding, drop jumps. Poprawa economy reduces SC.</div>
+  </div>'''
+    else:
+        sc_urgency = 'UTRZYMANIE'
+        sc_col = '#16a34a'
+        sc_methods = f'''<div style="background:#f0fdf4;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#166534;margin-bottom:3px;">✅ Doskonała ekonomia mięśniowa — utrzymuj</div>
+    <div style="font-size:12px;color:#334155;">SC heavy: {_n(sc_hvy, ".1f")}% | SC severe: {_n(sc_sev, ".1f")}% — poniżej 3% to poziom elitarny.</div>
+    <div style="font-size:10px;color:#94a3b8;font-style:italic;">Kontynuuj bazę aerobową Z2 i pracę nad ekonomią biegową. Nie zmieniaj tego co działa.</div>
+  </div>'''
+
+    h += f'''<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;border-left:4px solid {sc_col};">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div>
+      <span style="font-size:18px;font-weight:800;color:#0f172a;">#{priority_num}</span>
+      <span style="font-size:14px;font-weight:700;color:#0f172a;margin-left:8px;">Slow Component — ekonomia mięśniowa</span>
+    </div>
+    <span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:{sc_col}15;color:{sc_col};border:1px solid {sc_col}40;">{sc_urgency}</span>
+  </div>
+  {sc_methods}
+</div>'''
+
+    # PRIORITY 4: Sport-specific (HYROX/CrossFit: repeat effort, recovery)
+    if sport_emphasis.get('repeat_effort') and sport_emphasis.get('recovery_speed'):
+        priority_num += 1
+        h += f'''<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;border-left:4px solid #7c3aed;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div>
+      <span style="font-size:18px;font-weight:800;color:#0f172a;">#{priority_num}</span>
+      <span style="font-size:14px;font-weight:700;color:#0f172a;margin-left:8px;">Repeat-effort capacity ({sport_label.split(" ",1)[-1] if " " in sport_label else sport})</span>
+    </div>
+    <span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:#7c3aed15;color:#7c3aed;border:1px solid #7c3aed40;">SPORT-SPECIFIC</span>
+  </div>
+  <div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Transition training (on/off kinetyka)</div>
+    <div style="font-size:12px;color:#334155;">8–10× (90s @ {_n(float(vt2_speed)*1.05 if vt2_speed else 0, ".1f")} km/h → 90s @ {_n(float(vt1_speed)*0.75 if vt1_speed else 0, ".0f")} km/h). Symulacja zmian stacja↔bieg.</div>
+    <div style="font-size:10px;color:#94a3b8;font-style:italic;">Trenuje szybkość przejścia z high-output na recovery — kluczowe w {sport_emphasis.get("economy_focus", "")}</div>
+  </div>
+  <div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Race-pace simulation</div>
+    <div style="font-size:12px;color:#334155;">4 rundy: (station work 3–4min @ max → 1km bieg @ {_n(float(vt2_speed)*0.92 if vt2_speed else 0, ".1f")} km/h). Rest: 2min walk.</div>
+    <div style="font-size:10px;color:#94a3b8;font-style:italic;">Specificity — trenuj kinetykę w warunkach zawodów</div>
+  </div>
+  <div style="background:#f8fafc;border-radius:6px;padding:10px 12px;margin-bottom:6px;">
+    <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:3px;">💪 Off-kinetics priming</div>
+    <div style="font-size:12px;color:#334155;">Pre-race warm-up: 6min @ VT1 → 3min rest → 3min @ VT2 → 5min rest → START. Przyspiesza τ o ~20%.</div>
+  </div>
+</div>'''
+
+    # PRIORITY 5: Periodization note
+    priority_num += 1
+    h += f'''<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px;border-left:4px solid #64748b;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div>
+      <span style="font-size:18px;font-weight:800;color:#0f172a;">#{priority_num}</span>
+      <span style="font-size:14px;font-weight:700;color:#0f172a;margin-left:8px;">Periodyzacja i re-test</span>
+    </div>
+    <span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:#64748b15;color:#64748b;border:1px solid #64748b40;">PLAN</span>
+  </div>
+  <div style="font-size:12px;color:#334155;padding:4px 0;">
+    📅 <b>Re-test kinetyki:</b> za 8–12 tygodni po bloku treningowym. Porównaj τ i SC.
+  </div>
+  <div style="font-size:12px;color:#334155;padding:4px 0;">
+    📊 <b>Markerami postępu</b> będą: τ moderate (&lt;20s = ELITE), τ heavy (&lt;25s), SC heavy &lt;3%.
+  </div>
+  <div style="font-size:12px;color:#334155;padding:4px 0;">
+    ⚠️ <b>Uwaga:</b> τ reaguje na trening szybciej niż VO₂max (4–6 tyg vs 8–12 tyg). SC zmienia się wolniej (12–16 tyg).
+  </div>
+</div>'''
+
+    h += '</div>'
+
+    # ═══════════════════════════════════════════════════════
+    # FLAGS & PROTOCOL VALIDATION
+    # ═══════════════════════════════════════════════════════
+    h += '<div class="card"><div class="section-title">Walidacja protokołu</div>'
+    
+    # Domain validation summary
+    h += '<div style="margin-bottom:8px;">'
+    for dv in (domain_val.get('stages', []) if isinstance(domain_val, dict) else []):
+        snum = dv.get('stage_num', 0)
+        match = dv.get('domain_match', True)
+        dom_exp = dv.get('domain_expected', '?')
+        dom_det = dv.get('domain', '?')
+        icon = '✅' if match else '⚠️'
+        h += f'<span style="margin-right:12px;font-size:12px;">S{snum}: {icon} {dom_det}'
+        if not match:
+            h += f' <span style="color:#ea580c;font-size:10px;">(oczekiwano: {dom_exp})</span>'
+        h += '</span>'
+    h += '</div>'
+
+    # Flags
+    if flags:
+        h += '<div style="margin-top:6px;">'
+        for fl in flags:
+            is_warn = any(w in str(fl) for w in ['MISMATCH', 'SHORT', 'LOW_R2', 'PRIMING'])
+            fl_col = '#ea580c' if is_warn else '#64748b'
+            h += f'<span class="flag-item" style="background:{fl_col}10;color:{fl_col};border:1px solid {fl_col}30;">{esc(str(fl))}</span>'
+        h += '</div>'
+
+    h += f'<div style="margin-top:8px;font-size:11px;color:#94a3b8;">Engine: E14 v{e14.get("version", "?")} + E21 v{e21.get("version", "?")}</div>'
+    h += '</div>'
+
+    # ═══════════════════════════════════════════════════════
+    # FOOTER
+    # ═══════════════════════════════════════════════════════
+    h += f'''<div style="text-align:center;padding:12px;font-size:10px;color:#94a3b8;">
+  PeakLab · Raport kinetyki VO₂ · Wygenerowano automatycznie
+</div>'''
+
+    h += '</div></body></html>'
+    return h
+
+
+
+def generate_kinetics_charts(df, results):
+    """Generate all kinetics charts as base64 PNGs.
+    Returns dict with keys: trace, tau, sc, recovery"""
+    charts = {}
+    if df is None or 'Time_s' not in df.columns or 'VO2_ml_min' not in df.columns:
+        return charts
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import pandas as _pd
+        import base64 as _b64
+        from io import BytesIO as _BytesIO
+
+        plt.rcParams.update({'font.size':10,'axes.facecolor':'#fff','figure.facecolor':'#fff',
+            'axes.edgecolor':'#e2e8f0','axes.grid':True,'grid.color':'#f1f5f9','grid.alpha':0.8,
+            'axes.spines.top':False,'axes.spines.right':False})
+        _DC = {'MODERATE':'#3b82f6','HEAVY':'#d97706','SEVERE':'#dc2626','VERY_SEVERE':'#7c3aed'}
+
+        def _f2b(fig, dpi=150):
+            buf = _BytesIO()
+            fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight', pad_inches=0.15)
+            buf.seek(0); b = _b64.b64encode(buf.read()).decode('utf-8'); plt.close(fig); return b
+
+        e14 = results.get('E14', {}); e02 = results.get('E02', {}); e01 = results.get('E01', {})
+        stages = e14.get('stages', [])
+
+        # CHART 1: VO2 trace
+        try:
+            fig, ax = plt.subplots(figsize=(10, 4.5))
+            t = df['Time_s'].values / 60; vo2 = df['VO2_ml_min'].values
+            vo2s = _pd.Series(vo2).rolling(15, center=True, min_periods=3).mean().values
+            ax.set_ylim(0, max(vo2) * 1.15)
+            for s in stages:
+                t0, t1 = s.get('t_start',0)/60, s.get('t_end',0)/60
+                dom = s.get('domain','MODERATE'); col = _DC.get(dom,'#94a3b8')
+                ax.axvspan(t0, t1, alpha=0.08, color=col)
+                mid = (t0+t1)/2
+                ax.text(mid, max(vo2)*1.10, f"S{s['stage_num']}  {s.get('speed_kmh',0)} km/h",
+                        ha='center', va='center', fontsize=8, fontweight='bold', color=col,
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor=col, alpha=0.12, edgecolor=col, linewidth=0.5))
+            ax.scatter(t, vo2, s=3, alpha=0.15, color='#64748b')
+            ax.plot(t, vo2s, color='#0f172a', linewidth=1.8)
+            vt1v = e02.get('vt1_vo2_abs'); vt2v = e02.get('vt2_vo2_abs'); vmx = e01.get('vo2peak_abs_mlmin')
+            if vt1v:
+                ax.axhline(float(vt1v), color='#3b82f6', linestyle='--', linewidth=1, alpha=0.7)
+                ax.text(t.max()*0.98, float(vt1v), 'VT1', ha='right', va='bottom', fontsize=8, color='#3b82f6', fontweight='bold')
+            if vt2v:
+                ax.axhline(float(vt2v), color='#dc2626', linestyle='--', linewidth=1, alpha=0.7)
+                ax.text(t.max()*0.98, float(vt2v), 'VT2', ha='right', va='bottom', fontsize=8, color='#dc2626', fontweight='bold')
+            if vmx:
+                ax.axhline(float(vmx), color='#0f172a', linestyle=':', linewidth=1, alpha=0.5)
+                ax.text(t.max()*0.98, float(vmx), 'VO\u2082max', ha='right', va='bottom', fontsize=8, color='#0f172a', fontweight='bold')
+            ax.set_xlabel('Czas [min]'); ax.set_ylabel('VO\u2082 [ml/min]')
+            ax.set_title('Przebieg VO\u2082 \u2014 test kinetyczny CWR', fontsize=12, fontweight='bold', pad=10)
+            charts['trace'] = _f2b(fig)
+        except: pass
+
+        # CHART 2: tau bars
+        try:
+            dd, tts, ccs = [], [], []
+            for s in stages:
+                if s.get('tau_on_s') and s.get('domain') in ('MODERATE','HEAVY','SEVERE'):
+                    dd.append(s['domain']); tts.append(s['tau_on_s']); ccs.append(_DC.get(s['domain'],'#64748b'))
+            if dd:
+                fig, ax = plt.subplots(figsize=(5, 3.5))
+                x = np.arange(len(dd)); bars = ax.bar(x, tts, color=ccs, width=0.6, edgecolor='white', linewidth=1, zorder=3)
+                ax.axhspan(0,20,alpha=0.06,color='#7c3aed'); ax.axhspan(20,35,alpha=0.06,color='#16a34a')
+                ax.axhspan(35,55,alpha=0.06,color='#d97706'); ax.axhspan(55,100,alpha=0.06,color='#dc2626')
+                ax.text(len(dd)-0.3,10,'ELITE',fontsize=7,color='#7c3aed',ha='right',style='italic')
+                ax.text(len(dd)-0.3,27,'TRAINED',fontsize=7,color='#16a34a',ha='right',style='italic')
+                ax.text(len(dd)-0.3,44,'ACTIVE',fontsize=7,color='#d97706',ha='right',style='italic')
+                ax.text(len(dd)-0.3,70,'SLOW',fontsize=7,color='#dc2626',ha='right',style='italic')
+                for b, tau in zip(bars, tts):
+                    ax.text(b.get_x()+b.get_width()/2, b.get_height()+1.5, f'{tau:.0f}s', ha='center', va='bottom', fontsize=11, fontweight='bold')
+                dl = {'MODERATE':'Moderate\n(<VT1)','HEAVY':'Heavy\n(VT1\u2194VT2)','SEVERE':'Severe\n(>VT2)'}
+                ax.set_xticks(x); ax.set_xticklabels([dl.get(d,d) for d in dd], fontsize=9)
+                ax.set_ylabel('\u03c4 on-kinetics [s]')
+                ax.set_title('Sta\u0142a czasowa adaptacji VO\u2082', fontsize=11, fontweight='bold', pad=8)
+                ax.set_ylim(0, max(tts)*1.25)
+                charts['tau'] = _f2b(fig)
+        except: pass
+
+        # CHART 3: SC drift
+        try:
+            fig, axes = plt.subplots(1, 2, figsize=(8, 3.5), sharey=True); plotted = 0
+            for s in stages:
+                dom = s.get('domain','')
+                if dom not in ('HEAVY','SEVERE') or plotted >= 2: continue
+                ax = axes[plotted]; t0, t1 = s.get('t_start',0), s.get('t_end',0)
+                mask = (df['Time_s']>=t0) & (df['Time_s']<=t1); sub = df[mask]
+                if len(sub) < 10: continue
+                tr = (sub['Time_s'].values-t0)/60; vo2 = sub['VO2_ml_min'].values
+                vo2s = _pd.Series(vo2).rolling(11, center=True, min_periods=3).mean().values
+                col = _DC.get(dom,'#64748b')
+                ax.scatter(tr, vo2, s=8, alpha=0.2, color=col); ax.plot(tr, vo2s, color=col, linewidth=2)
+                v = ~np.isnan(vo2s)
+                if v.sum() > 5:
+                    z = np.polyfit(tr[v], vo2s[v], 1)
+                    ax.plot(tr, np.poly1d(z)(tr), '--', color='#0f172a', linewidth=1, alpha=0.6)
+                    ax.text(0.95, 0.05, f'drift: {z[0]:+.0f} ml/min\u00b2', transform=ax.transAxes, ha='right', va='bottom',
+                            fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                ax.set_title(f"S{s['stage_num']} {dom} ({s.get('speed_kmh',0)} km/h) \u2014 SC: {s.get('sc_pct',0):.1f}%",
+                             fontsize=10, fontweight='bold', color=col)
+                ax.set_xlabel('Czas [min]')
+                if plotted == 0: ax.set_ylabel('VO\u2082 [ml/min]')
+                plotted += 1
+            fig.suptitle('Slow Component \u2014 drift VO\u2082 w czasie', fontsize=11, fontweight='bold', y=1.02)
+            fig.tight_layout()
+            charts['sc'] = _f2b(fig)
+        except: pass
+
+        # CHART 4: Recovery
+        try:
+            off_ks = e14.get('off_kinetics', [])
+            valid = [o for o in off_ks if o.get('status')=='OK' and o.get('pct_recovered_60s') is not None]
+            if valid:
+                fig, ax = plt.subplots(figsize=(6, 3.5)); tps = [30,60,90,120]; w = 0.25; x = np.arange(len(tps))
+                rcols = ['#d97706','#dc2626']
+                for i, ok in enumerate(valid[:2]):
+                    vals = [min(100, float(ok.get(f'pct_recovered_{tp}s',0) or 0)) for tp in tps]
+                    off = (i - len(valid[:2])/2 + 0.5) * w
+                    bars = ax.bar(x+off, vals, width=w, color=rcols[i%2], alpha=0.8, edgecolor='white', label=ok.get('transition',''))
+                    for b, v in zip(bars, vals):
+                        if v > 0: ax.text(b.get_x()+b.get_width()/2, b.get_height()+1, f'{v:.0f}%', ha='center', va='bottom', fontsize=8, fontweight='bold')
+                ax.axhspan(0,40,alpha=0.04,color='#dc2626'); ax.axhspan(40,70,alpha=0.04,color='#d97706')
+                ax.axhspan(70,100,alpha=0.04,color='#16a34a')
+                ax.set_xticks(x); ax.set_xticklabels([f'{tp}s' for tp in tps])
+                ax.set_ylabel('% recovered')
+                ax.set_title('Recovery VO\u2082 \u2014 % odbudowy po wysi\u0142ku', fontsize=11, fontweight='bold', pad=8)
+                ax.set_ylim(0, 115); ax.legend(fontsize=8, loc='upper left')
+                charts['recovery'] = _f2b(fig)
+        except: pass
+
+        # CHART 5: Dual-axis VO2 + SmO2 trace
+        try:
+            e22 = results.get('E22', {})
+            nirs = e22.get('nirs', {})
+            if nirs.get('available') and nirs.get('time_series'):
+                ts_nirs = nirs['time_series']
+                t_sm = np.array(ts_nirs['t']) / 60
+                s_sm = np.array(ts_nirs['smo2'])
+
+                fig, ax1 = plt.subplots(figsize=(10, 4.5))
+                t_vo2 = df['Time_s'].values / 60
+                vo2 = df['VO2_ml_min'].values
+                vo2s = _pd.Series(vo2).rolling(15, center=True, min_periods=3).mean().values
+
+                # Domain backgrounds
+                for s in stages:
+                    t0, t1 = s.get('t_start',0)/60, s.get('t_end',0)/60
+                    dom = s.get('domain','MODERATE')
+                    col = _DC.get(dom,'#94a3b8')
+                    ax1.axvspan(t0, t1, alpha=0.06, color=col)
+
+                # VO2 on left axis
+                ax1.scatter(t_vo2, vo2, s=2, alpha=0.1, color='#64748b')
+                ax1.plot(t_vo2, vo2s, color='#0f172a', linewidth=1.5, label='VO₂')
+                ax1.set_xlabel('Czas [min]')
+                ax1.set_ylabel('VO₂ [ml/min]', color='#0f172a')
+                ax1.tick_params(axis='y', labelcolor='#0f172a')
+                ax1.set_ylim(0, max(vo2) * 1.15)
+
+                # SmO2 on right axis
+                ax2 = ax1.twinx()
+                smo2_smooth = _pd.Series(s_sm).rolling(5, center=True, min_periods=1).mean().values
+                ax2.plot(t_sm, smo2_smooth, color='#dc2626', linewidth=2.5, label='SmO₂', zorder=5)
+                ax2.scatter(t_sm, s_sm, s=15, alpha=0.4, color='#dc2626', zorder=4)
+                ax2.set_ylabel('SmO₂ [%]', color='#dc2626')
+                ax2.tick_params(axis='y', labelcolor='#dc2626')
+                ax2.set_ylim(max(0, min(s_sm) - 10), min(100, max(s_sm) + 10))
+
+                # Legend
+                lines1, labels1 = ax1.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right', fontsize=9)
+
+                ax1.set_title('VO₂ + SmO₂ — Delivery vs Extraction', fontsize=12, fontweight='bold', pad=10)
+                fig.tight_layout()
+                charts['nirs_dual'] = _f2b(fig)
+        except: pass
+
+        # CHART 6: Fingerprint Radar
+        try:
+            e22 = results.get('E22', {})
+            fp = e22.get('composites', {}).get('fingerprint', {})
+            if len(fp) >= 3:
+                categories = []
+                values = []
+                for dim_name, dim_key in [('Capacity', 'capacity'), ('Thresholds', 'thresholds'),
+                                           ('Kinetics', 'kinetics'), ('Recovery', 'recovery')]:
+                    if dim_key in fp:
+                        categories.append(dim_name)
+                        values.append(fp[dim_key])
+
+                if len(categories) >= 3:
+                    N = len(categories)
+                    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+                    values_plot = values + [values[0]]
+                    angles_plot = angles + [angles[0]]
+
+                    fig, ax = plt.subplots(figsize=(4.5, 4.5), subplot_kw=dict(polar=True))
+                    ax.fill(angles_plot, values_plot, color='#3b82f6', alpha=0.15)
+                    ax.plot(angles_plot, values_plot, color='#3b82f6', linewidth=2.5, marker='o', markersize=6)
+
+                    # Value labels
+                    for a, v, cat in zip(angles, values, categories):
+                        ax.text(a, v + 8, f'{v}', ha='center', va='center', fontsize=11, fontweight='bold', color='#0f172a')
+
+                    ax.set_xticks(angles)
+                    ax.set_xticklabels(categories, fontsize=10, fontweight='600')
+                    ax.set_ylim(0, 100)
+                    ax.set_yticks([25, 50, 75, 100])
+                    ax.set_yticklabels(['25', '50', '75', '100'], fontsize=7, color='#94a3b8')
+                    ax.grid(color='#e2e8f0', linewidth=0.5)
+
+                    # Zone bands
+                    for r, col in [(25, '#dc262620'), (50, '#d9770620'), (75, '#16a34a15'), (100, '#3b82f615')]:
+                        circle = plt.Circle((0, 0), r, transform=ax.transData + ax.transAxes,
+                                           fill=False, edgecolor=col, linewidth=0)
+
+                    ax.set_title('Aerobic Fitness Fingerprint', fontsize=12, fontweight='bold', pad=20)
+                    fig.tight_layout()
+                    charts['radar'] = _f2b(fig)
+        except: pass
+
+    except ImportError:
+        pass
+    return charts
+
+
+def inject_kinetics_charts(html, charts):
+    """Insert chart PNGs into kinetics report HTML at correct positions."""
+    if not charts:
+        return html
+    if charts.get('trace'):
+        c1 = f'<div class="card"><div class="section-title">Przebieg VO\u2082 \u2014 pe\u0142ny test kinetyczny</div><img src="data:image/png;base64,{charts["trace"]}" style="width:100%;border-radius:8px;"></div>'
+        html = html.replace(
+            '<div class="card"><div class="section-title">Protok\u00f3\u0142 kinetyczny',
+            c1 + '\n<div class="card"><div class="section-title">Protok\u00f3\u0142 kinetyczny')
+    if charts.get('tau') or charts.get('sc'):
+        parts = []
+        if charts.get('tau'):
+            parts.append(f'<div style="flex:1;min-width:280px;"><img src="data:image/png;base64,{charts["tau"]}" style="width:100%;border-radius:8px;"></div>')
+        if charts.get('sc'):
+            parts.append(f'<div style="flex:1.5;min-width:380px;"><img src="data:image/png;base64,{charts["sc"]}" style="width:100%;border-radius:8px;"></div>')
+        c23 = f'<div class="card"><div class="section-title">Wizualizacja kinetyki</div><div style="display:flex;gap:12px;flex-wrap:wrap;">{"".join(parts)}</div></div>'
+        html = html.replace(
+            '<div class="card">\n  <div class="section-title">Slow Component',
+            c23 + '\n<div class="card">\n  <div class="section-title">Slow Component')
+    if charts.get('recovery'):
+        c4 = f'<div class="card"><div class="section-title">Wizualizacja recovery</div><img src="data:image/png;base64,{charts["recovery"]}" style="width:70%;border-radius:8px;margin:0 auto;display:block;"></div>'
+        html = html.replace(
+            '<div class="card">\n  <div class="section-title">Diagnoza limitacji',
+            c4 + '\n<div class="card">\n  <div class="section-title">Diagnoza limitacji')
+    if charts.get('nirs_dual'):
+        c5 = f'<div class="card"><div class="section-title">VO\u2082 + SmO\u2082 \u2014 Delivery vs Extraction</div><img src="data:image/png;base64,{charts["nirs_dual"]}" style="width:100%;border-radius:8px;"></div>'
+        # Insert before Triple Drift if exists, else before Diagnoza
+        if 'Triple Drift' in html:
+            html = html.replace(
+                '<div class="card"><div class="section-title">Analiza drift',
+                c5 + '\n<div class="card"><div class="section-title">Analiza drift')
+        else:
+            html = html.replace(
+                '<div class="card">\n  <div class="section-title">Diagnoza limitacji',
+                c5 + '\n<div class="card">\n  <div class="section-title">Diagnoza limitacji')
+    if charts.get('radar'):
+        c6 = f'<div style="text-align:center;"><img src="data:image/png;base64,{charts["radar"]}" style="width:50%;min-width:280px;border-radius:8px;"></div>'
+        # Insert into fingerprint card
+        if 'Aerobic Fitness Fingerprint' in html:
+            html = html.replace(
+                '<div class="card"><div class="section-title">Aerobic Fitness Fingerprint</div>',
+                f'<div class="card"><div class="section-title">Aerobic Fitness Fingerprint</div>{c6}')
+    return html
+
+print("\u2705 Kinetics Report module (render + charts + inject) za\u0142adowany.")
