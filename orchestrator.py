@@ -1112,9 +1112,25 @@ class CPET_Orchestrator:
             else:
                 print(f"  🔬 Kinetics report SKIPPED: mode={_e14_mode}, stages={_e14_stages}")
         except Exception as e:
+            import traceback as _tbb
+            _tb_str = _tbb.format_exc()
             print(f"⚠️ Kinetics report generation error: {e}")
-            import traceback; traceback.print_exc()
-            self.results["_kinetics_error"] = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+            print(_tb_str)
+            # Produce ERROR HTML so the user can SEE the traceback in the UI
+            html_report_kinetics = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{{font-family:monospace;padding:20px;background:#1e1e1e;color:#f0f0f0;}}
+h1{{color:#ff6b6b;}} pre{{background:#2d2d2d;padding:16px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;}}
+.info{{color:#4ecdc4;font-size:14px;}}</style></head><body>
+<h1>❌ Kinetics Report — Render Error</h1>
+<p class="info">E14.mode = {self.results.get('E14',{}).get('mode','?')} | 
+stages = {len(self.results.get('E14',{}).get('stages',[]))} | 
+config.protocol = {self.cfg.protocol_name} | 
+speeds = {getattr(self.cfg, 'kinetics_speeds_kmh', 'MISSING')}</p>
+<h2>Error</h2>
+<pre>{type(e).__name__}: {e}</pre>
+<h2>Traceback</h2>
+<pre>{_tb_str}</pre>
+</body></html>"""
 
         self._last_report = {
             "outputs_calc_only": outputs,

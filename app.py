@@ -576,25 +576,6 @@ if "cpet_results" in st.session_state:
     _kinetics_html = results.get("html_report_kinetics")
     has_kinetics = _kinetics_html is not None and len(str(_kinetics_html)) > 100
 
-    # DEBUG: Show E14 diagnostic info
-    _dbg = results.get("_debug", {})
-    _e14_debug = results.get("raw_results", {}).get("E14", {})
-    if is_kinetics:
-        with st.expander("🔬 Diagnostyka raportu kinetycznego", expanded=True):
-            st.code(f"""E14.mode = {_dbg.get('e14_mode', _e14_debug.get('mode', '?'))}
-E14.status = {_dbg.get('e14_status', _e14_debug.get('status', '?'))}
-E14.stages = {_dbg.get('e14_stages', len(_e14_debug.get('stages', [])))}
-html_report_kinetics = {_dbg.get('kinetics_html_len', len(str(_kinetics_html)) if _kinetics_html else 0)} chars
-has_kinetics = {has_kinetics}
-config.protocol = {_dbg.get('config_protocol', '?')}
-config.speeds = {_dbg.get('config_speeds', '?')}
-kinetics_error = {_dbg.get('kinetics_error', 'no debug data')}""")
-            _errs = _dbg.get('qc_engine_errors', [])
-            if _errs:
-                st.warning(f"Engine errors ({len(_errs)}):")
-                for _err in _errs[:10]:
-                    st.code(_err)
-
     if is_kinetics and has_kinetics:
         html_content = _kinetics_html
         report_label = "KINETICS"
@@ -605,7 +586,8 @@ kinetics_error = {_dbg.get('kinetics_error', 'no debug data')}""")
         html_content = results["html_report"]
         report_label = "PRO"
         if is_kinetics and not has_kinetics:
-            st.info("ℹ️ Raport kinetyczny niedostępny (brak danych CWR). Wyświetlam raport PRO.")
+            _e14 = results.get("raw_results", {}).get("E14", {})
+            st.info(f"ℹ️ Raport kinetyczny niedostępny. E14.mode={_e14.get('mode','?')}, stages={len(_e14.get('stages',[]))}, html={len(str(_kinetics_html)) if _kinetics_html else 0}chars")
 
     if e20_html:
         html_content = html_content.replace("</body>", e20_html + "</body>")
