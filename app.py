@@ -591,6 +591,11 @@ html_report_kinetics = {_dbg_kin_len} chars
 has_kinetics = {has_kinetics}
 config.protocol = {results.get('raw_results',{}).get('_config_protocol','?')}
 config.speeds = {results.get('raw_results',{}).get('_config_speeds','?')}""")
+            # Show kinetics render error if any
+            _kin_err = results.get("raw_results", {}).get("_kinetics_error")
+            if _kin_err:
+                st.error("❌ Kinetics report render error:")
+                st.code(_kin_err)
             # Check engine errors
             _all_errs = results.get("raw_results", {}).get("_qc_log", {}).get("engine_errors", [])
             if _all_errs:

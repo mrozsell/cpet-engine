@@ -1114,6 +1114,7 @@ class CPET_Orchestrator:
         except Exception as e:
             print(f"⚠️ Kinetics report generation error: {e}")
             import traceback; traceback.print_exc()
+            self.results["_kinetics_error"] = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
 
         self._last_report = {
             "outputs_calc_only": outputs,
