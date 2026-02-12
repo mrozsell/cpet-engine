@@ -70,6 +70,7 @@ st.markdown("""
 
 PROTOCOL_MAP = {
     "AUTO": "🔍 Auto-detekcja z pliku",
+    "KINETICS": "🔬 Kinetyka VO₂ (CWR 4×6min)",
     "RUN_RAMP": "🏃 Bieżnia — Ramp",
     "RUN_STEP_1KMH": "🏃 Bieżnia — Step +1 km/h / 2 min",
     "RUN_STEP_05KMH": "🏃 Bieżnia — Step +0.5 km/h / 2 min",
@@ -213,6 +214,26 @@ with st.sidebar:
         index=2,
         format_func=lambda x: PROTOCOL_MAP.get(x, x)
     )
+
+    # ── Kinetics protocol: 4 speeds input ──
+    kinetics_speeds = None
+    if protocol == "KINETICS":
+        st.markdown("#### 🔬 Prędkości protokołu kinetyki")
+        st.caption("Podaj 4 prędkości użyte w teście CWR (constant work rate)")
+        kc1, kc2, kc3, kc4 = st.columns(4)
+        with kc1:
+            ks1 = st.number_input("S1: Baseline", min_value=3.0, max_value=25.0,
+                                  value=9.0, step=0.5, help="Poniżej VT1")
+        with kc2:
+            ks2 = st.number_input("S2: ~VT1", min_value=3.0, max_value=25.0,
+                                  value=11.0, step=0.5, help="W okolicach VT1")
+        with kc3:
+            ks3 = st.number_input("S3: ~VT2", min_value=3.0, max_value=25.0,
+                                  value=13.5, step=0.5, help="W okolicach VT2")
+        with kc4:
+            ks4 = st.number_input("S4: >VT2", min_value=3.0, max_value=25.0,
+                                  value=15.0, step=0.5, help="Powyżej VT2 (severe)")
+        kinetics_speeds = [ks1, ks2, ks3, ks4]
 
     MODALITY_MAP = {
         "run": "🏃 Bieg", "bike": "🚴 Kolarstwo", "triathlon": "🏊 Triathlon",
@@ -449,6 +470,7 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                 smooth_window_gas=smooth_gas,
                 smooth_window_hr=smooth_hr,
                 gc_manual=gc_manual_text.strip() if use_gc_manual and gc_manual_text.strip() else None,
+                kinetics_speeds_kmh=kinetics_speeds if protocol == "KINETICS" else None,
             )
 
             if mas_input > 0:
@@ -577,6 +599,72 @@ if "cpet_results" in st.session_state:
     if "text_report" in results:
         with st.expander("📋 Raport tekstowy (dla trenerów)"):
             st.text(results["text_report"])
+
+    # ── VO₂ Kinetics display (E14 CWR mode) ──
+    _e14 = {}
+    _raw = results.get("raw_results", {})
+    if isinstance(_raw, dict):
+        _e14 = _raw.get("E14", {})
+    if not _e14:
+        _e14 = results.get("E14", {})
+    if _e14.get("mode") == "CWR_KINETICS" and _e14.get("stages"):
+        with st.expander("🔬 Kinetyka VO₂ & Slow Component (E14)", expanded=True):
+            st.markdown("### VO₂ Kinetics — Analiza CWR")
+            _stages = _e14["stages"]
+            _summary = _e14.get("summary", {})
+
+            # Stages table
+            cols_h = ["#", "Domena", "km/h", "VO₂ (ml/kg)", "%VO₂max", "HR", "RER",
+                       "τ (s)", "MRT (s)", "R²", "SC (%)", "SC klasa"]
+            rows = []
+            for _s in _stages:
+                rows.append([
+                    f"S{_s['stage_num']}", _s['domain'],
+                    _s.get('speed_kmh', '—'),
+                    _s.get('vo2kg_mean', '—'), _s.get('pct_vo2max', '—'),
+                    _s.get('hr_mean', '—'), _s.get('rer_mean', '—'),
+                    _s.get('tau_on_s', '—'), _s.get('mrt_s', '—'),
+                    _s.get('fit_r2', '—'),
+                    _s.get('sc_pct', '—'), _s.get('sc_class', '—'),
+                ])
+            import pandas as _pd
+            _df_kin = _pd.DataFrame(rows, columns=cols_h)
+            st.dataframe(_df_kin, use_container_width=True, hide_index=True)
+
+            # Summary metrics
+            _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+            with _mc1:
+                _tv = _summary.get('tau_moderate')
+                st.metric("τ Moderate", f"{_tv}s" if _tv else "—",
+                          delta=_summary.get('tau_moderate_class', ''))
+            with _mc2:
+                _tv = _summary.get('tau_heavy')
+                st.metric("τ Heavy", f"{_tv}s" if _tv else "—",
+                          delta=_summary.get('tau_heavy_class', ''))
+            with _mc3:
+                _tv = _summary.get('sc_heavy_pct')
+                st.metric("SC Heavy", f"{_tv}%" if _tv is not None else "—",
+                          delta=_summary.get('sc_heavy_class', ''))
+            with _mc4:
+                _tv = _summary.get('recovery_t_half')
+                st.metric("Recovery T½", f"{_tv}s" if _tv else "—",
+                          delta=_summary.get('recovery_class', ''))
+
+            # Off-kinetics
+            _offk = _e14.get('off_kinetics', [])
+            if _offk:
+                st.markdown("**Off-kinetics (recovery):**")
+                for _ok in _offk:
+                    _tr = _ok.get('transition', '?')
+                    _tau = _ok.get('tau_off_s', '—')
+                    _th = _ok.get('t_half_s', '—')
+                    _rc = _ok.get('recovery_class', '')
+                    st.caption(f"{_tr}: τ_off={_tau}s | T½={_th}s | {_rc}")
+
+            # Flags
+            _flags = _e14.get('flags', [])
+            if _flags:
+                st.warning("⚠️ Flagi: " + ", ".join(_flags))
 
 st.markdown("---")
 st.markdown(

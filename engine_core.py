@@ -44,6 +44,9 @@ class AnalysisConfig:
     # --- KONTEKST ---
     notes: str = ""
 
+    # --- KINETICS PROTOCOL ---
+    kinetics_speeds_kmh: Optional[list] = None  # [speed1, speed2, speed3, speed4] for CWR protocol
+
     @property
     def t_stop_seconds(self) -> Optional[float]:
         return parse_time_str(self.force_manual_t_stop)
@@ -7943,174 +7946,898 @@ Engine_E13_Drift = Engine_E13_Drift_v2
 
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# E14 v2: VO₂ KINETICS & SLOW COMPONENT ENGINE
+# ═══════════════════════════════════════════════════════════════════════
+#
+# PURPOSE: Full VO₂ kinetics analysis from constant-work-rate (CWR)
+#   protocols. Detects exercise stages, fits on/off kinetics,
+#   quantifies VO₂ slow component, and provides domain-specific insights.
+#   Falls back to off-kinetics-only mode for standard incremental tests.
+#
+# PROTOCOL REQUIREMENT:
+#   CWR kinetics protocol with ≥2 constant-load stages of ≥3 min each.
+#   User selects "KINETICS" protocol and provides 4 speeds:
+#     S1 = baseline (<VT1), S2 = ~VT1, S3 = ~VT2, S4 = >VT2
+#
+# SCIENTIFIC REFERENCES:
+#   - Whipp & Wasserman 1972: Mono-exponential VO₂ kinetics model
+#   - Barstow & Molé 1991: Bi-exponential model for heavy/severe
+#   - Jones et al. 2003: Slow component mechanisms & symmetry
+#   - Poole & Jones 2012: VO₂ kinetics in sport, τ classifications
+#   - Burnley & Jones 2007: O₂ uptake kinetics as determinant of performance
+#   - Grassi 2001: Regulation of VO₂ on-kinetics during exercise
+#   - Bell et al. 2001: Comparison of modelling techniques for VO₂ kinetics
+#   - McNulty & Robergs 2017: New methods for VO₂ kinetics processing
+#
+# MODELS:
+#   Phase II mono-exponential (Moderate domain):
+#     VO₂(t) = baseline + A × (1 − exp(−(t − TD) / τ))
+#
+#   Bi-exponential with slow component (Heavy/Severe):
+#     VO₂(t) = baseline + A_p × (1 − exp(−(t − TD_p) / τ_p))
+#                        + A_sc × (1 − exp(−(t − TD_sc) / τ_sc))
+#
+#   Off-kinetics (recovery):
+#     VO₂(t) = baseline + A × exp(−t / τ_off)
+#
+# CLASSIFICATIONS (Poole & Jones 2012, Murias et al. 2014):
+#   τ Moderate:  Elite <15s | Trained 15-25s | Active 25-40s | Slow >40s
+#   τ Heavy:     Elite <20s | Trained 20-35s | Active 35-50s | Slow >50s
+#   VO₂SC Heavy: Low <5% | Normal 5-15% | High 15-25% | Very High >25%
+# ═══════════════════════════════════════════════════════════════════════
+
 class Engine_E14_Kinetics:
-    """VO2 Off-Kinetics / Recovery Engine.
-    
-    Calculates T1/2 VO2, tau, MRT, VO2DR, dVO2 at timepoints, VCO2/VE T1/2.
-    
-    References:
-    - Cohen-Solal 1995 Circulation 91:2504 — T1/2 VO2 in CHF
-    - Scrutinio 2002 JACC 39:1270 — T1/2 >115s prognostic cutoff
-    - Bailey 2018 JACC HF 6:329 — VO2DR parameter
-    - Off-kinetics tau: athletes 30-50s, healthy 50-80s, HF >120s
-    
-    Classification (T1/2 VO2 after maximal incremental):
-    - EXCELLENT: <60s (trained athletes)
-    - GOOD: 60-90s (healthy active)
-    - NORMAL: 90-120s (healthy sedentary)
-    - SLOW: 120-150s (deconditioning or mild pathology)
-    - VERY_SLOW: >150s (HF or severe deconditioning)
+    """VO₂ Kinetics & Slow Component Engine v2.
+
+    Two modes:
+    1. CWR MODE (kinetics protocol detected):
+       Full on-kinetics, slow component, off-kinetics per stage.
+    2. INCREMENTAL MODE (fallback):
+       Off-kinetics only (recovery after max exercise).
     """
-    
+
+    # ── Classification thresholds ──
+    TAU_CLASS = {
+        'moderate': [
+            (15, 'ELITE', 'Elitarna kinetyka — szybka aktywacja oksydacyjna'),
+            (25, 'TRAINED', 'Wytrenowana kinetyka — dobra adaptacja'),
+            (40, 'ACTIVE', 'Przeciętna kinetyka — norma dla aktywnych'),
+            (999, 'SLOW', 'Spowolniona kinetyka — potencjał do poprawy'),
+        ],
+        'heavy': [
+            (20, 'ELITE', 'Elitarna — minimalne opóźnienie O₂ delivery'),
+            (35, 'TRAINED', 'Wytrenowana — dobra adaptacja do heavy domain'),
+            (50, 'ACTIVE', 'Przeciętna — norma dla aktywnych'),
+            (999, 'SLOW', 'Spowolniona — ograniczenie O₂ delivery lub mitochondrialne'),
+        ],
+    }
+
+    SC_CLASS = [
+        (2, 'MINIMAL', 'Minimalny — typowy dla moderate domain'),
+        (5, 'LOW', 'Niski — dobra stabilność metaboliczna'),
+        (15, 'NORMAL', 'Normalny — typowy dla heavy domain'),
+        (25, 'HIGH', 'Wysoki — znaczna rekrutacja Type II'),
+        (999, 'VERY_HIGH', 'Bardzo wysoki — silne zmęczenie mięśniowe'),
+    ]
+
+    RECOVERY_CLASS = [
+        (60, 'EXCELLENT', 'Szybka recovery — typowa dla sportowców wytrzymałościowych'),
+        (90, 'GOOD', 'Dobra recovery — zdrowa aktywna osoba'),
+        (120, 'NORMAL', 'Prawidłowa recovery'),
+        (150, 'SLOW', 'Spowolniona recovery — dekondycjonowanie'),
+        (999, 'VERY_SLOW', 'Bardzo wolna recovery — ograniczenie O₂ delivery'),
+    ]
+
+    @staticmethod
+    def _classify(value, thresholds):
+        if value is None:
+            return None, None
+        for cutoff, label, desc in thresholds:
+            if value < cutoff:
+                return label, desc
+        return thresholds[-1][1], thresholds[-1][2]
+
+    # ═══════════════════════════════════════════════════════════
+    # MAIN ENTRY POINT
+    # ═══════════════════════════════════════════════════════════
     @staticmethod
     def run(results, cfg):
         import numpy as np
+        import pandas as pd
+
         try:
             from scipy.optimize import curve_fit
+            from scipy.signal import savgol_filter
             _has_scipy = True
         except ImportError:
             _has_scipy = False
-        
-        out = {"status": "OK"}
+
+        out = {"status": "OK", "mode": "UNKNOWN", "version": "2.0"}
+
+        # ── Get dataframe ──
+        if isinstance(cfg, dict):
+            df = cfg.get("_df_processed")
+            acfg = cfg.get("_acfg")
+        else:
+            df = getattr(cfg, '_df_processed', None)
+            acfg = cfg
+
+        if df is None or len(df) < 50:
+            out["status"] = "NO_DATAFRAME"
+            return out
+
+        # ── Resolve columns ──
+        time_col = None
+        for c in ['Time_s', 't', 'time_s']:
+            if c in df.columns:
+                time_col = c
+                break
+        if not time_col:
+            out["status"] = "NO_TIME_COLUMN"
+            return out
+
+        vo2_col = None
+        for c in ['VO2_ml_min', 'VO2_mlmin', 'VO2_ml_min']:
+            if c in df.columns:
+                vo2_col = c
+                break
+        if not vo2_col:
+            for c in df.columns:
+                if 'vo2' in c.lower() and 'ml' in c.lower() and 'min' in c.lower():
+                    vo2_col = c
+                    break
+        # Try VO2 L/min and convert
+        if not vo2_col:
+            for c in ['VO2_L_min']:
+                if c in df.columns:
+                    df = df.copy()
+                    df['_VO2_mlmin'] = df[c] * 1000
+                    vo2_col = '_VO2_mlmin'
+                    break
+
+        vo2kg_col = None
+        for c in ["V'O2/kg", "VO2_kg", "VO2_ml_kg_min"]:
+            if c in df.columns:
+                vo2kg_col = c
+                break
+
+        hr_col = None
+        for c in ['HR_bpm', 'HR', 'HF']:
+            if c in df.columns:
+                hr_col = c
+                break
+
+        rer_col = 'RER' if 'RER' in df.columns else None
+
+        if not vo2_col:
+            out["status"] = "NO_VO2_COLUMN"
+            return out
+
+        body_mass = 70.0
+        try:
+            body_mass = float(getattr(acfg, 'body_mass_kg', 70))
+        except:
+            pass
+
+        # ── Detect protocol mode ──
+        protocol_name = ''
+        if acfg:
+            protocol_name = str(getattr(acfg, 'protocol_name', '')).upper()
+
+        is_kinetics = 'KINET' in protocol_name or 'CWR' in protocol_name
+
+        # Get kinetics speeds from config
+        kin_speeds = None
+        if acfg:
+            kin_speeds = getattr(acfg, 'kinetics_speeds_kmh', None)
+
+        if is_kinetics:
+            out["mode"] = "CWR_KINETICS"
+            return Engine_E14_Kinetics._run_cwr_kinetics(
+                df, out, time_col, vo2_col, vo2kg_col, hr_col, rer_col,
+                body_mass, results, acfg, kin_speeds, _has_scipy
+            )
+        else:
+            out["mode"] = "INCREMENTAL_OFFKINETICS"
+            return Engine_E14_Kinetics._run_off_kinetics(
+                df, out, time_col, vo2_col, body_mass, results, acfg, _has_scipy
+            )
+
+    # ═══════════════════════════════════════════════════════════
+    # MODE 1: CWR KINETICS (full analysis)
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _run_cwr_kinetics(df, out, time_col, vo2_col, vo2kg_col, hr_col, rer_col,
+                          body_mass, results, acfg, kin_speeds, _has_scipy):
+        import numpy as np
+        import pandas as pd
+
+        if not _has_scipy:
+            out["status"] = "NO_SCIPY"
+            return out
+
+        from scipy.optimize import curve_fit
+        from scipy.stats import linregress
+
+        t = df[time_col].values.astype(float)
+        vo2 = df[vo2_col].values.astype(float)
+        vo2kg = df[vo2kg_col].values.astype(float) if vo2kg_col else vo2 / body_mass
+
+        hr = df[hr_col].values.astype(float) if hr_col else np.full_like(t, np.nan)
+        rer = df[rer_col].values.astype(float) if rer_col else np.full_like(t, np.nan)
+
+        # ── 1. DETECT CWR STAGES ──
+        stages = Engine_E14_Kinetics._detect_cwr_stages(t, vo2, hr, rer, kin_speeds)
+
+        if len(stages) < 2:
+            out["status"] = "INSUFFICIENT_STAGES"
+            out["n_stages_detected"] = len(stages)
+            return out
+
+        out["n_stages"] = len(stages)
+        out["stages"] = []
+
+        # VO2max from E01 for %VO2max calculations
+        e01 = results.get('E01', {})
+        vo2max_abs = e01.get('vo2peak_abs_mlmin') or e01.get('vo2_peak_ml_min')
+        if vo2max_abs:
+            vo2max_abs = float(vo2max_abs)
+        else:
+            vo2max_abs = float(np.nanmax(vo2)) * 1.05  # fallback
+
+        # ── 2. ANALYZE EACH STAGE ──
+        prev_stage_end_vo2 = None
+
+        for i, stage in enumerate(stages):
+            s = Engine_E14_Kinetics._analyze_stage(
+                i, stage, t, vo2, vo2kg, hr, rer, body_mass,
+                vo2max_abs, prev_stage_end_vo2, _has_scipy
+            )
+            out["stages"].append(s)
+
+            # Track for next stage baseline
+            mask = (t >= stage['t_start']) & (t < stage['t_end'])
+            if mask.sum() > 5:
+                prev_stage_end_vo2 = float(np.nanmean(vo2[mask][-10:]))
+
+        # ── 3. OFF-KINETICS between stages ──
+        off_kinetics = []
+        for i in range(len(stages) - 1):
+            curr = stages[i]
+            nxt = stages[i + 1]
+            gap_start = curr['t_end']
+            gap_end = nxt['t_start']
+            if gap_end - gap_start >= 60:
+                off_k = Engine_E14_Kinetics._analyze_off_kinetics(
+                    t, vo2, gap_start, gap_end, body_mass, _has_scipy
+                )
+                off_k['transition'] = f"S{i+1}→S{i+2}"
+                off_kinetics.append(off_k)
+
+        # Final recovery (after last stage)
+        last_end = stages[-1]['t_end']
+        rec_end = float(t.max())
+        if rec_end - last_end >= 60:
+            final_rec = Engine_E14_Kinetics._analyze_off_kinetics(
+                t, vo2, last_end, rec_end, body_mass, _has_scipy
+            )
+            final_rec['transition'] = "FINAL_RECOVERY"
+            off_kinetics.append(final_rec)
+
+        out["off_kinetics"] = off_kinetics
+
+        # ── 4. SUMMARY ──
+        out["summary"] = Engine_E14_Kinetics._build_summary(out, kin_speeds)
+        out["flags"] = Engine_E14_Kinetics._build_flags(out)
+
+        return out
+
+    # ═══════════════════════════════════════════════════════════
+    # STAGE DETECTION
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _detect_cwr_stages(t, vo2, hr, rer, kin_speeds):
+        """Detect constant-work-rate stages from VO₂ profile.
+
+        Uses CUSUM to find ALL VO₂ transitions, builds segments between them,
+        classifies each as EXERCISE_STAGE (stable, CV<8%) or TRANSITION,
+        then picks the N stages with increasing VO₂ matching user speeds.
+        Also identifies transitions between stages for off-kinetics analysis.
+        """
+        import numpy as np
+        import pandas as pd
+
+        n_expected = len(kin_speeds) if kin_speeds else 4
+
+        # 1. Smooth VO₂
+        vo2_s = pd.Series(vo2).rolling(20, center=True, min_periods=3).mean().values
+
+        # 2. CUSUM jump detection
+        half_w = min(20, len(vo2) // 10)
+        n = len(vo2_s)
+        if half_w < 3 or n < 50:
+            return []
+
+        jump_score = np.zeros(n)
+        for i in range(half_w, n - half_w):
+            bef = np.nanmean(vo2_s[i - half_w:i])
+            aft = np.nanmean(vo2_s[i:i + half_w])
+            jump_score[i] = abs(aft - bef)
+
+        jump_score[:max(10, half_w)] = 0
+        jump_score[-max(10, half_w):] = 0
+
+        try:
+            from scipy.signal import find_peaks
+        except ImportError:
+            return []
+
+        dt_median = max(0.5, np.median(np.diff(t)))
+        min_sep = max(1, int(60 / dt_median))
+        peaks, props = find_peaks(jump_score, distance=min_sep, height=80)
+
+        if len(peaks) < 2:
+            return []
+
+        peaks = sorted(peaks)
+
+        # 3. Build ALL segments between transitions
+        all_boundaries = [0] + list(peaks) + [n - 1]
+        segments = []
+
+        for i in range(len(all_boundaries) - 1):
+            idx_s = all_boundaries[i]
+            idx_e = all_boundaries[i + 1]
+            ts = float(t[idx_s])
+            te = float(t[idx_e])
+            dur = te - ts
+            if dur < 30:
+                continue
+
+            mask = (t >= ts) & (t < te)
+            if mask.sum() < 5:
+                continue
+
+            v_mean = float(np.nanmean(vo2[mask]))
+            v_smooth_seg = vo2_s[mask]
+            cv = float(np.nanstd(v_smooth_seg) / np.nanmean(v_smooth_seg) * 100) if np.nanmean(v_smooth_seg) > 0 else 999
+
+            seg = {
+                't_start': ts,
+                't_end': te,
+                'duration': dur,
+                'vo2_mean': v_mean,
+                'hr_mean': float(np.nanmean(hr[mask])) if not np.all(np.isnan(hr[mask])) else 0,
+                'rer_mean': float(np.nanmean(rer[mask])) if not np.all(np.isnan(rer[mask])) else 0,
+                'cv_pct': cv,
+                'is_stage': cv < 10 and dur >= 100,  # stable enough and long enough
+            }
+            segments.append(seg)
+
+        # 4. Select N exercise stages with INCREASING VO₂
+        # Strategy: from all "stage" segments, pick N with distinct VO₂ levels
+        stage_segs = [s for s in segments if s['is_stage'] and s['vo2_mean'] > 1000]
+
+        if len(stage_segs) < n_expected:
+            # Relax: include shorter/less stable segments
+            stage_segs = [s for s in segments if s['duration'] >= 60 and s['vo2_mean'] > 1000]
+
+        if len(stage_segs) < 2:
+            return []
+
+        # Sort by VO₂ level
+        stage_segs.sort(key=lambda x: x['vo2_mean'])
+
+        # Remove duplicates at similar VO₂ level (within 5%)
+        # Keep the LONGEST segment at each level
+        deduped = []
+        for seg in stage_segs:
+            merged = False
+            for d in deduped:
+                pct_diff = abs(seg['vo2_mean'] - d['vo2_mean']) / d['vo2_mean'] * 100
+                if pct_diff < 7:
+                    if seg['duration'] > d['duration']:
+                        deduped.remove(d)
+                        deduped.append(seg)
+                    merged = True
+                    break
+            if not merged:
+                deduped.append(seg)
+
+        # Sort by VO₂ again
+        deduped.sort(key=lambda x: x['vo2_mean'])
+
+        # If still more than N, pick N most separated levels
+        if len(deduped) > n_expected:
+            # Take N evenly spaced in VO₂ range
+            vo2_range = [d['vo2_mean'] for d in deduped]
+            target_vo2 = np.linspace(min(vo2_range), max(vo2_range), n_expected)
+            selected = []
+            for tv in target_vo2:
+                closest = min(deduped, key=lambda x: abs(x['vo2_mean'] - tv))
+                if closest not in selected:
+                    selected.append(closest)
+            deduped = selected
+
+        # If fewer than N, that's OK — report what we have
+
+        # Sort final stages by time
+        deduped.sort(key=lambda x: x['t_start'])
+
+        # Assign domain and speed
+        for s in deduped:
+            if s['rer_mean'] < 0.95:
+                s['domain'] = 'MODERATE'
+            elif s['rer_mean'] < 1.05:
+                s['domain'] = 'HEAVY'
+            else:
+                s['domain'] = 'SEVERE'
+
+        if kin_speeds:
+            # Match speeds to stages by VO₂ order (lowest VO₂ = lowest speed)
+            vo2_order = sorted(range(len(deduped)), key=lambda i: deduped[i]['vo2_mean'])
+            for rank, idx in enumerate(vo2_order):
+                deduped[idx]['speed_kmh'] = kin_speeds[rank] if rank < len(kin_speeds) else None
+
+        # Store transitions for off-kinetics
+        # (segments between exercise stages)
+        transition_segs = [s for s in segments if not s['is_stage'] or s not in deduped]
+        for s in deduped:
+            s['_transitions_after'] = [
+                ts for ts in transition_segs
+                if ts['t_start'] >= s['t_end'] - 10
+                and ts['t_end'] <= (deduped[deduped.index(s) + 1]['t_start'] + 10
+                                    if deduped.index(s) < len(deduped) - 1
+                                    else t[-1])
+            ]
+
+        return deduped
+
+    # ═══════════════════════════════════════════════════════════
+    # STAGE ANALYSIS (on-kinetics + slow component)
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _analyze_stage(idx, stage, t, vo2, vo2kg, hr, rer, body_mass,
+                       vo2max_abs, prev_end_vo2, _has_scipy):
+        """Analyze a single CWR stage: on-kinetics tau and slow component."""
+        import numpy as np
+
+        s = {
+            'stage_num': idx + 1,
+            'domain': stage.get('domain', 'UNKNOWN'),
+            't_start': stage['t_start'],
+            't_end': stage['t_end'],
+            'duration_s': stage['duration'],
+            'speed_kmh': stage.get('speed_kmh'),
+            'vo2_mean_mlmin': round(stage['vo2_mean']),
+            'vo2kg_mean': round(stage['vo2_mean'] / body_mass, 1),
+            'hr_mean': round(stage['hr_mean']),
+            'rer_mean': round(stage['rer_mean'], 2),
+            'pct_vo2max': round(100 * stage['vo2_mean'] / vo2max_abs, 1) if vo2max_abs else None,
+        }
+
+        mask = (t >= stage['t_start']) & (t < stage['t_end'])
+        t_stage = t[mask] - stage['t_start']  # relative time
+        vo2_stage = vo2[mask]
+        vo2kg_stage = vo2kg[mask]
+
+        if len(t_stage) < 20:
+            s['status'] = 'INSUFFICIENT_DATA'
+            return s
+
+        # ── ON-KINETICS (Phase II τ) ──
+        # Baseline: either prev stage end or first 10s of this stage
+        baseline_vo2 = prev_end_vo2 if prev_end_vo2 else float(np.nanmean(vo2_stage[:5]))
+
+        # Exclude Phase I (cardiodynamic, first 15-20s)
+        phase2_mask = t_stage >= 15
+        t_fit = t_stage[phase2_mask]
+        vo2_fit = vo2_stage[phase2_mask]
+
+        if _has_scipy and len(t_fit) >= 15:
+            from scipy.optimize import curve_fit
+
+            # Steady-state from last 60s
+            late_mask = t_stage >= max(stage['duration'] - 60, stage['duration'] * 0.7)
+            ss_vo2 = float(np.nanmean(vo2_stage[late_mask])) if late_mask.sum() > 3 else float(np.nanmean(vo2_stage[-10:]))
+            amp_est = ss_vo2 - baseline_vo2
+
+            if amp_est > 50:  # minimal signal required
+                # Mono-exponential fit
+                def mono_exp_on(t_r, A, tau, td):
+                    return np.where(t_r < td,
+                                    baseline_vo2,
+                                    baseline_vo2 + A * (1 - np.exp(-(t_r - td) / tau)))
+
+                try:
+                    p0 = [amp_est, 30, 12]
+                    bounds = ([amp_est * 0.3, 3, 0], [amp_est * 2.5, 150, 30])
+                    popt, pcov = curve_fit(mono_exp_on, t_fit, vo2_fit,
+                                          p0=p0, bounds=bounds, maxfev=8000)
+                    A_fit, tau_fit, td_fit = popt
+
+                    predicted = mono_exp_on(t_fit, *popt)
+                    ss_res = np.sum((vo2_fit - predicted) ** 2)
+                    ss_tot = np.sum((vo2_fit - np.mean(vo2_fit)) ** 2)
+                    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+                    s['tau_on_s'] = round(float(tau_fit), 1)
+                    s['td_on_s'] = round(float(td_fit), 1)
+                    s['mrt_s'] = round(float(tau_fit + td_fit), 1)
+                    s['amplitude_mlmin'] = round(float(A_fit))
+                    s['baseline_mlmin'] = round(baseline_vo2)
+                    s['fit_r2'] = round(float(r2), 3)
+                    s['fit_quality'] = ('GOOD' if r2 >= 0.85 else
+                                        ('MODERATE' if r2 >= 0.70 else
+                                         ('FAIR' if r2 >= 0.50 else 'POOR')))
+
+                    # Classify tau
+                    domain_key = 'moderate' if s['domain'] == 'MODERATE' else 'heavy'
+                    tau_class, tau_desc = Engine_E14_Kinetics._classify(
+                        tau_fit, Engine_E14_Kinetics.TAU_CLASS.get(domain_key,
+                                Engine_E14_Kinetics.TAU_CLASS['heavy']))
+                    s['tau_class'] = tau_class
+                    s['tau_desc'] = tau_desc
+
+                    # O₂ deficit (area between demand line and actual VO₂)
+                    demand = baseline_vo2 + A_fit  # steady-state demand
+                    deficit_mask = t_fit < (td_fit + 4 * tau_fit)
+                    if deficit_mask.sum() > 5:
+                        actual = vo2_fit[deficit_mask]
+                        t_def = t_fit[deficit_mask]
+                        deficit_area = np.trapz(demand - actual, t_def) / 1000  # L
+                        s['o2_deficit_L'] = round(float(max(0, deficit_area)), 2)
+
+                except Exception as e:
+                    s['fit_error'] = str(e)[:100]
+                    s['fit_quality'] = 'FAILED'
+
+        # ── SLOW COMPONENT ──
+        dur = stage['duration']
+        if dur >= 180:  # need at least 3 min
+            # Method 1: Classic ΔVO₂(end - 3min) [Barstow 1991]
+            m3_mask = (t_stage >= 150) & (t_stage < 210)
+            end_mask = t_stage >= (dur - 60)
+
+            if m3_mask.sum() > 3 and end_mask.sum() > 3:
+                vo2_3min = float(np.nanmean(vo2_stage[m3_mask]))
+                vo2_end = float(np.nanmean(vo2_stage[end_mask]))
+                vo2kg_3min = float(np.nanmean(vo2kg_stage[m3_mask]))
+                vo2kg_end = float(np.nanmean(vo2kg_stage[end_mask]))
+
+                sc_abs = vo2_end - vo2_3min
+                sc_rel = vo2kg_end - vo2kg_3min
+                sc_pct = 100 * sc_abs / vo2_3min if vo2_3min > 0 else 0
+
+                s['sc_abs_mlmin'] = round(sc_abs)
+                s['sc_rel_mlkgmin'] = round(sc_rel, 1)
+                s['sc_pct'] = round(sc_pct, 1)
+                s['vo2_at_3min'] = round(vo2_3min)
+                s['vo2_at_end'] = round(vo2_end)
+
+                # Classify SC
+                sc_class, sc_desc = Engine_E14_Kinetics._classify(
+                    abs(sc_pct), Engine_E14_Kinetics.SC_CLASS)
+                s['sc_class'] = sc_class
+                s['sc_desc'] = sc_desc
+
+            # Method 2: Linear drift rate in last 3 min
+            if dur >= 240:
+                last3_mask = (t_stage >= dur - 180)
+                if last3_mask.sum() > 10:
+                    from scipy.stats import linregress
+                    slope, intercept, r_val, p_val, _ = linregress(
+                        t_stage[last3_mask], vo2_stage[last3_mask])
+                    s['sc_drift_rate_mlmin2'] = round(float(slope * 60), 1)  # ml/min per minute
+                    s['sc_drift_r'] = round(float(r_val), 3)
+                    s['sc_drift_p'] = round(float(p_val), 4)
+
+            # Method 3: Does VO₂ project to VO₂max?
+            if vo2max_abs and s.get('vo2_at_end'):
+                pct_at_end = 100 * s['vo2_at_end'] / vo2max_abs
+                s['pct_vo2max_at_end'] = round(pct_at_end, 1)
+                s['approaching_vo2max'] = pct_at_end >= 90
+
+        return s
+
+    # ═══════════════════════════════════════════════════════════
+    # OFF-KINETICS (recovery between stages or final)
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _analyze_off_kinetics(t, vo2, t_start, t_end, body_mass, _has_scipy):
+        """Analyze recovery kinetics between stages."""
+        import numpy as np
+
+        out = {}
+        mask = (t >= t_start) & (t < t_end)
+        if mask.sum() < 10:
+            out['status'] = 'INSUFFICIENT_DATA'
+            return out
+
+        t_rel = t[mask] - t_start
+        vo2_rec = vo2[mask]
+
+        # Peak = first few seconds
+        pre_mask = (t >= t_start - 15) & (t < t_start)
+        vo2_peak = float(np.nanmean(vo2[pre_mask])) if pre_mask.sum() > 0 else float(vo2_rec[0])
+
+        # Nadir / end
+        vo2_end = float(np.nanmean(vo2_rec[-5:]))
+        amplitude = vo2_peak - vo2_end
+
+        out['vo2_peak_mlmin'] = round(vo2_peak)
+        out['vo2_end_mlmin'] = round(vo2_end)
+        out['amplitude_mlmin'] = round(amplitude)
+        out['duration_s'] = round(float(t_end - t_start))
+
+        if amplitude <= 50:
+            out['status'] = 'MINIMAL_CHANGE'
+            return out
+
+        # T½
+        target_50 = vo2_peak - amplitude * 0.5
+        smooth = np.convolve(vo2_rec, np.ones(5) / 5, mode='same')
+        crossed = np.where(smooth <= target_50)[0]
+        if len(crossed) > 0:
+            out['t_half_s'] = round(float(t_rel[crossed[0]]), 1)
+
+        # Recovery at standard timepoints
+        for secs in [30, 60, 90, 120, 180]:
+            check_mask = (t_rel >= secs - 5) & (t_rel <= secs + 5)
+            if check_mask.sum() > 0:
+                vo2_at = float(np.nanmean(vo2_rec[check_mask]))
+                pct_rec = 100 * (vo2_peak - vo2_at) / amplitude if amplitude > 0 else 0
+                out[f'pct_recovered_{secs}s'] = round(pct_rec, 1)
+
+        # Mono-exponential off-kinetics fit
+        if _has_scipy and len(t_rel) >= 10:
+            from scipy.optimize import curve_fit
+
+            fit_mask = t_rel >= 10  # skip first 10s
+            t_fit = t_rel[fit_mask]
+            vo2_fit = vo2_rec[fit_mask]
+
+            if len(t_fit) >= 8:
+                def mono_exp_off(t_r, A, tau, baseline):
+                    return baseline + A * np.exp(-t_r / tau)
+
+                try:
+                    p0 = [amplitude * 0.8, 60, vo2_end]
+                    bounds = ([50, 5, 0], [amplitude * 2, 500, vo2_peak])
+                    popt, _ = curve_fit(mono_exp_off, t_fit, vo2_fit,
+                                        p0=p0, bounds=bounds, maxfev=5000)
+                    A_off, tau_off, base_off = popt
+
+                    predicted = mono_exp_off(t_fit, *popt)
+                    ss_res = np.sum((vo2_fit - predicted) ** 2)
+                    ss_tot = np.sum((vo2_fit - np.mean(vo2_fit)) ** 2)
+                    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+                    out['tau_off_s'] = round(float(tau_off), 1)
+                    out['tau_off_r2'] = round(float(r2), 3)
+                    out['t_half_from_tau_s'] = round(float(tau_off * 0.693), 1)
+
+                except Exception:
+                    pass
+
+        # Classification
+        t_half_val = out.get('t_half_s') or out.get('t_half_from_tau_s')
+        if t_half_val:
+            cls, desc = Engine_E14_Kinetics._classify(
+                float(t_half_val), Engine_E14_Kinetics.RECOVERY_CLASS)
+            out['recovery_class'] = cls
+            out['recovery_desc'] = desc
+
+        out['status'] = 'OK'
+        return out
+
+    # ═══════════════════════════════════════════════════════════
+    # SUMMARY BUILDER
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _build_summary(out, kin_speeds):
+        """Build summary dict with key findings."""
+        summary = {}
+
+        stages = out.get('stages', [])
+        if not stages:
+            return summary
+
+        # Best tau (from moderate domain)
+        mod_stages = [s for s in stages if s.get('domain') == 'MODERATE' and s.get('tau_on_s')]
+        if mod_stages:
+            summary['tau_moderate'] = mod_stages[0]['tau_on_s']
+            summary['tau_moderate_class'] = mod_stages[0].get('tau_class')
+
+        # Heavy tau
+        heavy_stages = [s for s in stages if s.get('domain') == 'HEAVY' and s.get('tau_on_s')]
+        if heavy_stages:
+            summary['tau_heavy'] = heavy_stages[0]['tau_on_s']
+            summary['tau_heavy_class'] = heavy_stages[0].get('tau_class')
+
+        # Severe tau
+        severe_stages = [s for s in stages if s.get('domain') == 'SEVERE' and s.get('tau_on_s')]
+        if severe_stages:
+            summary['tau_severe'] = severe_stages[0]['tau_on_s']
+
+        # Slow component per domain
+        for domain in ['MODERATE', 'HEAVY', 'SEVERE']:
+            d_stages = [s for s in stages if s.get('domain') == domain and s.get('sc_pct') is not None]
+            if d_stages:
+                summary[f'sc_{domain.lower()}_pct'] = d_stages[0]['sc_pct']
+                summary[f'sc_{domain.lower()}_abs'] = d_stages[0].get('sc_abs_mlmin')
+                summary[f'sc_{domain.lower()}_class'] = d_stages[0].get('sc_class')
+
+        # Off-kinetics summary
+        off_ks = out.get('off_kinetics', [])
+        final_rec = [o for o in off_ks if o.get('transition') == 'FINAL_RECOVERY']
+        if final_rec and final_rec[0].get('t_half_s'):
+            summary['recovery_t_half'] = final_rec[0]['t_half_s']
+            summary['recovery_class'] = final_rec[0].get('recovery_class')
+
+        # τ symmetry (on vs off)
+        for s in stages:
+            tau_on = s.get('tau_on_s')
+            if tau_on:
+                # Find matching off-kinetics
+                matching_off = [o for o in off_ks if o.get('tau_off_s')]
+                if matching_off:
+                    tau_off = matching_off[0]['tau_off_s']
+                    summary['tau_symmetry_ratio'] = round(tau_off / tau_on, 2) if tau_on > 0 else None
+                    break
+
+        # Speeds
+        if kin_speeds:
+            summary['speeds_kmh'] = kin_speeds
+
+        return summary
+
+    # ═══════════════════════════════════════════════════════════
+    # FLAGS
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _build_flags(out):
+        flags = []
+        stages = out.get('stages', [])
+
+        for s in stages:
+            # Slow tau in moderate domain
+            if s.get('domain') == 'MODERATE' and s.get('tau_on_s', 0) > 40:
+                flags.append(f"SLOW_TAU_MODERATE_{s['tau_on_s']:.0f}s")
+
+            # Large slow component in heavy
+            if s.get('domain') == 'HEAVY' and s.get('sc_pct', 0) > 20:
+                flags.append(f"HIGH_SC_HEAVY_{s['sc_pct']:.0f}pct")
+
+            # Approaching VO2max in severe
+            if s.get('approaching_vo2max'):
+                flags.append(f"VO2_APPROACHING_MAX_S{s['stage_num']}")
+
+            # Poor fit
+            if s.get('fit_quality') == 'POOR':
+                flags.append(f"POOR_FIT_S{s['stage_num']}")
+
+        # Slow final recovery
+        summary = out.get('summary', {})
+        if summary.get('recovery_t_half', 0) > 120:
+            flags.append('SLOW_FINAL_RECOVERY')
+
+        return flags
+
+    # ═══════════════════════════════════════════════════════════
+    # MODE 2: INCREMENTAL OFF-KINETICS (legacy fallback)
+    # ═══════════════════════════════════════════════════════════
+    @staticmethod
+    def _run_off_kinetics(df, out, time_col, vo2_col, body_mass, results, acfg, _has_scipy):
+        """Legacy off-kinetics mode for standard incremental tests.
+        Preserves all original E14 v1 functionality."""
+        import numpy as np
+
         e00 = results.get("E00", {})
         e01 = results.get("E01", {})
-        
+
         t_stop = e00.get("t_stop")
         rec_avail = e00.get("recovery_0_60_available", False)
-        
+
         if not t_stop or not rec_avail:
             out["status"] = "NO_RECOVERY_DATA"
             return out
-        
-        df = cfg.get("_df_processed")
-        if df is None or len(df) == 0:
-            out["status"] = "NO_DATAFRAME"
-            return out
-        
-        import pandas as pd
-        time_col = "Time_s"
-        vo2_col = None
-        for c in ["VO2_ml_min", "VO2_mlmin"]:
-            if c in df.columns:
-                vo2_col = c; break
-        if not vo2_col:
-            for c in df.columns:
-                if "vo2" in c.lower() and "ml" in c.lower() and "min" in c.lower():
-                    vo2_col = c; break
-        
-        if not vo2_col or time_col not in df.columns:
-            out["status"] = "MISSING_COLUMNS"
-            return out
-        
+
         rec = df[df[time_col] > t_stop][[time_col, vo2_col]].dropna().sort_values(time_col).copy()
         if len(rec) < 10:
             out["status"] = "INSUFFICIENT_RECOVERY_DATA"
             out["n_recovery_points"] = len(rec)
             return out
-        
+
         rec["t_rel"] = rec[time_col].values - t_stop
         rec_duration = float(rec["t_rel"].max())
         out["recovery_duration_s"] = round(rec_duration, 1)
         out["n_recovery_points"] = int(len(rec))
-        
+
         ex_mask = (df[time_col] >= t_stop - 30) & (df[time_col] <= t_stop)
         vo2_peak = float(df.loc[ex_mask, vo2_col].mean())
-        
+
         rest_mask = df[time_col] <= df[time_col].min() + 60
         vo2_rest = float(df.loc[rest_mask, vo2_col].mean())
         if np.isnan(vo2_rest) or vo2_rest <= 0:
             vo2_rest = 350.0
-        
+
         amplitude = vo2_peak - vo2_rest
         out["vo2_peak_mlmin"] = round(vo2_peak)
         out["vo2_rest_mlmin"] = round(vo2_rest)
         out["amplitude_mlmin"] = round(amplitude)
-        
+
         if amplitude <= 0:
             out["status"] = "INVALID_AMPLITUDE"
             return out
-        
+
         rec["vo2_smooth"] = rec[vo2_col].rolling(5, center=True, min_periods=1).mean()
-        
-        # === T1/2 VO2 ===
+
+        # T½ VO₂
         target_50 = vo2_rest + amplitude * 0.5
         crossed = rec[rec["vo2_smooth"] <= target_50]
-        t_half = None
         if len(crossed) > 0:
-            t_half = float(crossed.iloc[0]["t_rel"])
-            out["t_half_vo2_s"] = round(t_half, 1)
-        else:
-            out["t_half_vo2_s"] = None
-            out["t_half_note"] = f"Not reached in {rec_duration:.0f}s"
-        
-        # === Mono-exponential fit ===
-        fit_data = rec[(rec["t_rel"] > 10) & (rec["t_rel"] <= min(180, rec_duration))].copy()
-        
-        if _has_scipy and len(fit_data) >= 8:
-            def mono_exp(t, A, tau, baseline):
-                return baseline + A * np.exp(-t / tau)
-            try:
-                t_data = fit_data["t_rel"].values.astype(float)
-                vo2_data = fit_data[vo2_col].values.astype(float)
-                p0 = [amplitude * 0.8, 60, vo2_rest]
-                bounds = ([100, 5, 0], [amplitude * 2, 500, vo2_peak])
-                popt, pcov = curve_fit(mono_exp, t_data, vo2_data, p0=p0, bounds=bounds, maxfev=5000)
-                A_fit, tau_fit, baseline_fit = popt
-                predicted = mono_exp(t_data, *popt)
-                ss_res = np.sum((vo2_data - predicted)**2)
-                ss_tot = np.sum((vo2_data - np.mean(vo2_data))**2)
-                r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0
-                
-                out["tau_s"] = round(float(tau_fit), 1)
-                out["tau_amplitude"] = round(float(A_fit))
-                out["tau_baseline"] = round(float(baseline_fit))
-                out["tau_r2"] = round(float(r2), 4)
-                out["fit_quality"] = "GOOD" if r2 >= 0.85 else ("MODERATE" if r2 >= 0.70 else ("FAIR" if r2 >= 0.50 else "POOR"))
-                out["t_half_from_tau_s"] = round(float(tau_fit * np.log(2)), 1)
-                out["mrt_s"] = round(float(tau_fit), 1)
-                out["t_95pct_recovery_s"] = round(float(3 * tau_fit))
-            except Exception as e:
-                out["fit_error"] = str(e)
-                out["fit_quality"] = "FAILED"
-        else:
-            out["fit_quality"] = "INSUFFICIENT_DATA" if len(fit_data) < 8 else "NO_SCIPY"
-        
-        # === dVO2 at standard timepoints ===
-        body_mass = getattr(cfg.get("_acfg", cfg), "body_mass_kg", 70) if not isinstance(cfg, dict) else cfg.get("body_mass_kg", 70)
-        try:
-            body_mass = float(cfg.get("_acfg").body_mass_kg)
-        except:
-            body_mass = 70.0
-        
+            out["T_half_VO2_simple_s"] = round(float(crossed.iloc[0]["t_rel"]), 1)
+
+        # Mono-exponential fit
+        if _has_scipy:
+            from scipy.optimize import curve_fit
+            fit_data = rec[(rec["t_rel"] > 10) & (rec["t_rel"] <= min(180, rec_duration))].copy()
+
+            if len(fit_data) >= 8:
+                def mono_exp(t_val, A, tau, baseline):
+                    return baseline + A * np.exp(-t_val / tau)
+
+                try:
+                    t_data = fit_data["t_rel"].values.astype(float)
+                    vo2_data = fit_data[vo2_col].values.astype(float)
+                    p0 = [amplitude * 0.8, 60, vo2_rest]
+                    bounds = ([100, 5, 0], [amplitude * 2, 500, vo2_peak])
+                    popt, pcov = curve_fit(mono_exp, t_data, vo2_data,
+                                           p0=p0, bounds=bounds, maxfev=5000)
+                    A_fit, tau_fit, baseline_fit = popt
+
+                    predicted = mono_exp(t_data, *popt)
+                    ss_res = np.sum((vo2_data - predicted) ** 2)
+                    ss_tot = np.sum((vo2_data - np.mean(vo2_data)) ** 2)
+                    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+
+                    out["tau_s"] = round(float(tau_fit), 1)
+                    out["r_squared"] = round(float(r2), 4)
+                    out["T_half_VO2_s"] = round(float(tau_fit * 0.693), 1)
+                    out["MRT_s"] = round(float(tau_fit), 1)
+
+                    # Classification
+                    t_half_final = out.get("T_half_VO2_simple_s") or out.get("T_half_VO2_s")
+                    if t_half_final:
+                        cls, desc = Engine_E14_Kinetics._classify(
+                            float(t_half_final), Engine_E14_Kinetics.RECOVERY_CLASS)
+                        out["classification"] = cls
+                        out["classification_desc"] = desc
+
+                except Exception as e:
+                    out["fit_error"] = str(e)[:100]
+
+        # dVO₂ at timepoints
         for secs in [60, 90, 120, 150, 180]:
-            mask = (rec["t_rel"] >= secs - 5) & (rec["t_rel"] <= secs + 5)
-            vals = rec.loc[mask, "vo2_smooth"]
+            mask_t = (rec["t_rel"] >= secs - 5) & (rec["t_rel"] <= secs + 5)
+            vals = rec.loc[mask_t, "vo2_smooth"]
             if len(vals) > 0:
                 vo2_at = float(vals.mean())
                 dvo2 = (vo2_peak - vo2_at) / body_mass
-                out[f"vo2_at_{secs}s_mlmin"] = round(vo2_at)
-                out[f"dvo2_{secs}s_mlkgmin"] = round(dvo2, 1)
+                out[f"VO2_delay_recovery_s"] = round(dvo2, 1) if secs == 60 else out.get("VO2_delay_recovery_s")
                 out[f"pct_recovered_{secs}s"] = round((vo2_peak - vo2_at) / amplitude * 100, 1)
-        
-        # === VO2 Delay Recovery (VO2DR) ===
-        vo2_peak_thresh = vo2_peak * 0.98
-        vo2dr = None
-        smooth_vals = rec["vo2_smooth"].values
-        for i in range(len(smooth_vals)):
-            if smooth_vals[i] < vo2_peak_thresh:
-                if np.all(smooth_vals[i:] < vo2_peak_thresh):
-                    vo2dr = float(rec.iloc[i]["t_rel"])
-                    break
-        out["vo2dr_s"] = round(vo2dr, 1) if vo2dr is not None else None
-        
-        # === VCO2 and VE T1/2 ===
-        for param, col_candidates in [("vco2", ["VCO2_mlmin", "VCO2_ml_min"]),
-                                       ("ve", ["VE_Lmin", "VE_L_min"])]:
+
+        # VCO₂ and VE T½
+        for param, col_candidates in [("VCO2", ["VCO2_mlmin", "VCO2_ml_min"]),
+                                       ("VE", ["VE_Lmin", "VE_L_min"])]:
             for c in col_candidates:
                 if c in df.columns:
                     p_peak = float(df.loc[ex_mask, c].mean())
                     p_rest = float(df.loc[rest_mask, c].mean()) if rest_mask.any() else 0
-                    if np.isnan(p_rest): p_rest = 0
+                    if np.isnan(p_rest):
+                        p_rest = 0
                     p_amp = p_peak - p_rest
                     if p_amp > 0:
                         p_target = p_rest + p_amp * 0.5
@@ -8120,48 +8847,17 @@ class Engine_E14_Kinetics:
                             p_rec["smooth"] = p_rec[c].rolling(5, center=True, min_periods=1).mean()
                             p_crossed = p_rec[p_rec["smooth"] <= p_target]
                             if len(p_crossed) > 0:
-                                out[f"t_half_{param}_s"] = round(float(p_crossed.iloc[0]["t_rel"]), 1)
+                                out[f"T_half_{param}_s"] = round(float(p_crossed.iloc[0]["t_rel"]), 1)
                     break
-        
-        # === Classification ===
-        t_half_final = out.get("t_half_vo2_s") or out.get("t_half_from_tau_s")
-        if t_half_final is not None:
-            t_half_final = float(t_half_final)
-            if t_half_final < 60:
-                out["recovery_class"] = "EXCELLENT"
-                out["recovery_desc"] = "Szybka recovery — typowa dla sportowców wytrzymałościowych"
-            elif t_half_final < 90:
-                out["recovery_class"] = "GOOD"
-                out["recovery_desc"] = "Dobra recovery — zdrowa aktywna osoba"
-            elif t_half_final < 120:
-                out["recovery_class"] = "NORMAL"
-                out["recovery_desc"] = "Prawidłowa recovery"
-            elif t_half_final < 150:
-                out["recovery_class"] = "SLOW"
-                out["recovery_desc"] = "Spowolniona recovery — dekondycjonowanie lub łagodna patologia"
-            else:
-                out["recovery_class"] = "VERY_SLOW"
-                out["recovery_desc"] = "Bardzo wolna recovery — ograniczenie delivery O2"
-        
-        # === Flags ===
+
+        # Flags
         flags = []
-        if t_half_final and t_half_final > 120:
+        t_half_final = out.get("T_half_VO2_simple_s") or out.get("T_half_VO2_s")
+        if t_half_final and float(t_half_final) > 120:
             flags.append("SLOW_VO2_RECOVERY")
-        if out.get("vo2dr_s") and out["vo2dr_s"] > 25:
-            flags.append("PROLONGED_VO2DR")
-        if out.get("tau_r2") and out["tau_r2"] < 0.50:
-            flags.append("POOR_EXPONENTIAL_FIT")
-        t_half_vco2 = out.get("t_half_vco2_s")
-        if t_half_final and t_half_vco2:
-            ratio = t_half_vco2 / t_half_final if t_half_final > 0 else 0
-            out["vco2_vo2_t_half_ratio"] = round(ratio, 2)
-            if ratio > 1.5:
-                flags.append("VCO2_RECOVERY_DISPROPORTIONATE")
         out["flags"] = flags
-        
+
         return out
-
-
 
 
 # ═══════════════════════════════════════════════════════════════════════
