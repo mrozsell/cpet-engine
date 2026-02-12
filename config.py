@@ -37,6 +37,12 @@ class AnalysisConfig:
     mss_m_s: Optional[float] = None       # Max Sprint Speed [m/s]
     sport: str = ""                       # "running","cycling","football","triathlon"
 
+    # --- KINETYKA VO₂ (CWR protocol) ---
+    kinetics_speeds_kmh: Optional[List[float]] = None   # 4 prędkości CWR [km/h]
+
+    # --- GAS CALIBRATION MANUAL ---
+    gc_manual: Optional[str] = None       # Manual gas calibration text
+
     # --- KONTEKST ---
     notes: str = ""
 
