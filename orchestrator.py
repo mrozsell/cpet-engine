@@ -1097,8 +1097,9 @@ class CPET_Orchestrator:
             e14_data = self.results.get('E14', {})
             _e14_mode = e14_data.get('mode', 'NONE')
             _e14_stages = len(e14_data.get('stages', []))
-            print(f"  🔬 Kinetics check: E14.mode={_e14_mode}, stages={_e14_stages}")
-            if _e14_mode == 'CWR_KINETICS' and e14_data.get('stages'):
+            _is_kin_proto = 'KINET' in self.cfg.protocol_name or 'CWR' in self.cfg.protocol_name
+            print(f"  🔬 Kinetics check: E14.mode={_e14_mode}, stages={_e14_stages}, proto={self.cfg.protocol_name}, is_kin={_is_kin_proto}")
+            if (_e14_mode == 'CWR_KINETICS' and e14_data.get('stages')) or (_is_kin_proto and _e14_stages > 0):
                 from report import render_kinetics_report, generate_kinetics_charts, inject_kinetics_charts
                 _kin_ct = dict(canon_table) if canon_table else {}
                 _kin_ct['sport'] = getattr(self.cfg, 'sport', '') or getattr(self.cfg, 'modality', 'run') or 'run'
