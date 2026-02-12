@@ -8947,6 +8947,45 @@ class Engine_E14_Kinetics:
             flags.append("SLOW_VO2_RECOVERY")
         out["flags"] = flags
 
+        # ── Alias normalization for report.py compatibility ──
+        # Report expects lowercase keys; E14 outputs CamelCase/mixed.
+        # Canonical → alias mapping (report uses the alias keys)
+        if out.get("T_half_VO2_simple_s") is not None:
+            out["t_half_vo2_s"] = out["T_half_VO2_simple_s"]
+        elif out.get("T_half_VO2_s") is not None:
+            out["t_half_vo2_s"] = out["T_half_VO2_s"]
+
+        if out.get("r_squared") is not None:
+            out["tau_r2"] = out["r_squared"]
+
+        if out.get("MRT_s") is not None:
+            out["mrt_s"] = out["MRT_s"]
+
+        if out.get("T_half_VCO2_s") is not None:
+            out["t_half_vco2_s"] = out["T_half_VCO2_s"]
+
+        if out.get("T_half_VE_s") is not None:
+            out["t_half_ve_s"] = out["T_half_VE_s"]
+
+        if out.get("classification") is not None:
+            out["recovery_class"] = out["classification"]
+            out["recovery_desc"] = out.get("classification_desc", "")
+
+        if out.get("VO2_delay_recovery_s") is not None:
+            bm_val = body_mass if body_mass and body_mass > 0 else 1
+            out["dvo2_60s_mlkgmin"] = out["VO2_delay_recovery_s"]
+
+        if out.get("pct_recovered_60s") is not None:
+            # Ensure non-negative for display (negative = VO2 still rising)
+            raw_60 = out["pct_recovered_60s"]
+            raw_120 = out.get("pct_recovered_120s")
+            out["pct_recovered_60s"] = max(0, raw_60) if raw_60 is not None else None
+            out["pct_recovered_120s"] = max(0, raw_120) if raw_120 is not None else None
+
+        # vo2dr_s alias (VO2 Delay Recovery — time to start declining)
+        if out.get("VO2_delay_recovery_s") is not None:
+            out["vo2dr_s"] = abs(out["VO2_delay_recovery_s"])
+
         return out
 
 
