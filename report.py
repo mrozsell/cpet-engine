@@ -3943,11 +3943,65 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
         pb += row_item('HRmax', f'{_n(hr_peak,".0f")} bpm', '', f'{_n(hr_pct_pred,".0f")}% pred. ({_n(hr_pred,".0f")})')
 
         pb += '<div class="sub-header">RECOVERY</div>'
-        pb += row_item('HRR 1min', f'{_n(hrr1,".0f")} bpm', (str(hrr1_class or hrr1_class_e15)).upper(), hrr1_desc_e15)
-        pb += row_item('HRR 3min', f'{_n(hrr3,".0f")} bpm', str(hrr3_class).upper(), '')
-        pb += row_item('T½ VO₂', f'{_n(t_half_vo2,".0f")}s', rec_class, f'τ={_n(tau_vo2,".0f")}s (R²={_n(tau_r2,".2f")}) | MRT={_n(mrt,".0f")}s' if tau_vo2 else rec_desc)
-        pb += row_item('T½ VCO₂ / VE', f'{_n(t_half_vco2,".0f")}s / {_n(t_half_ve,".0f")}s', '', f'VO₂DR {_n(vo2dr,".1f")}s' if vo2dr else '')
-        pb += row_item('Recovery 60s/120s', f'{_n(pct_rec_60,".0f")}% / {_n(pct_rec_120,".0f")}%', '', f'ΔVO₂ 60s: {_n(dvo2_60,".1f")} ml/kg/min')
+
+        # HRR 1min — with sport-aware description
+        _hrr1_comment = hrr1_desc_e15 or ''
+        if hrr1 and float(hrr1) > 0:
+            _hv = float(hrr1)
+            if _hv >= 40: _hrr1_comment = f'Bardzo dobra (typowa dla sportowców)'
+            elif _hv >= 25: _hrr1_comment = f'Dobra — prawidłowa odpowiedź autonomiczna'
+            elif _hv >= 12: _hrr1_comment = f'Poniżej normy sportowej — rozważ periodyzację'
+            else: _hrr1_comment = f'Nieprawidłowa (<12 bpm) — wymaga oceny klinicznej'
+        pb += row_item('HRR 1min', f'{_n(hrr1,".0f")} bpm', (str(hrr1_class or hrr1_class_e15)).upper(), _hrr1_comment)
+
+        # HRR 3min — add classification
+        _hrr3_class = str(hrr3_class).upper() if hrr3_class and str(hrr3_class) != '?' else ''
+        _hrr3_comment = ''
+        if hrr3 and float(hrr3) > 0:
+            _h3 = float(hrr3)
+            if _h3 >= 50: _hrr3_class = _hrr3_class or 'GOOD'; _hrr3_comment = 'Prawidłowa 3-min recovery'
+            elif _h3 >= 30: _hrr3_class = _hrr3_class or 'NORMAL'
+            else: _hrr3_class = _hrr3_class or 'SLOW'; _hrr3_comment = 'Spowolniona recovery autonomiczna'
+        pb += row_item('HRR 3min', f'{_n(hrr3,".0f")} bpm', _hrr3_class, _hrr3_comment)
+
+        # T½ VO₂ — improved display with conditional tau
+        _thalf_desc = ''
+        _thalf_class = rec_class if rec_class and rec_class != '?' else ''
+        if t_half_vo2:
+            _tv = float(t_half_vo2)
+            if _tv < 60: _thalf_class = _thalf_class or 'EXCELLENT'
+            elif _tv < 90: _thalf_class = _thalf_class or 'GOOD'
+            elif _tv < 120: _thalf_class = _thalf_class or 'NORMAL'
+            elif _tv < 180: _thalf_class = _thalf_class or 'SLOW'
+            else: _thalf_class = _thalf_class or 'VERY_SLOW'
+        if tau_vo2 and tau_r2 and float(tau_r2) >= 0.80:
+            _thalf_desc = f'τ={_n(tau_vo2,".0f")}s (R²={_n(tau_r2,".2f")})'
+        elif tau_vo2 and tau_r2:
+            _thalf_desc = f'τ={_n(tau_vo2,".0f")}s (R²={_n(tau_r2,".2f")} — niski fit)'
+        elif rec_desc:
+            _thalf_desc = rec_desc
+        pb += row_item('T½ VO₂', f'{_n(t_half_vo2,".0f")}s', _thalf_class, _thalf_desc)
+
+        # T½ VCO₂ / VE — add ratio interpretation
+        _tvco2_desc = ''
+        if t_half_vco2 and t_half_vo2 and float(t_half_vo2) > 0:
+            _ratio = float(t_half_vco2) / float(t_half_vo2)
+            if _ratio > 1.5: _tvco2_desc = f'VCO₂/VO₂ ratio: {_ratio:.2f} — wysoka akumulacja laktatu'
+            elif _ratio > 1.1: _tvco2_desc = f'VCO₂/VO₂ ratio: {_ratio:.2f} — norma'
+            else: _tvco2_desc = f'VCO₂/VO₂ ratio: {_ratio:.2f}'
+        pb += row_item('T½ VCO₂ / VE', f'{_n(t_half_vco2,".0f")}s / {_n(t_half_ve,".0f")}s', '', _tvco2_desc)
+
+        # Recovery 60s/120s — add norms context
+        _rec_pct_class = ''
+        _rec_pct_desc = ''
+        if pct_rec_60 is not None:
+            _p60 = float(pct_rec_60)
+            if _p60 >= 40: _rec_pct_class = 'GOOD'
+            elif _p60 >= 25: _rec_pct_class = 'NORMAL'
+            else: _rec_pct_class = 'SLOW'
+        if dvo2_60:
+            _rec_pct_desc = f'ΔVO₂ 60s: {_n(dvo2_60,".1f")} ml/kg/min'
+        pb += row_item('Recovery 60s/120s', f'{_n(pct_rec_60,".0f")}% / {_n(pct_rec_120,".0f")}%', _rec_pct_class, _rec_pct_desc)
 
         # --- PANEL C: ODDYCHANIE ---
         pc = ''
