@@ -1123,10 +1123,19 @@ class CPET_Orchestrator:
             "text_report": text_report, "html_report": html_report,
             "html_report_lite": html_report_lite,
             "html_report_kinetics": html_report_kinetics,
-            "raw_results": {**self.results,
-                "_config_protocol": self.cfg.protocol_name,
-                "_config_speeds": str(getattr(self.cfg, 'kinetics_speeds_kmh', 'MISSING')),
-                "_qc_log": self._qc_log,
+            "raw_results": self.results,
+            "_debug": {
+                "config_protocol": self.cfg.protocol_name,
+                "config_speeds": str(getattr(self.cfg, 'kinetics_speeds_kmh', 'MISSING')),
+                "e14_mode": self.results.get("E14", {}).get("mode", "NO_E14"),
+                "e14_status": self.results.get("E14", {}).get("status", "?"),
+                "e14_stages": len(self.results.get("E14", {}).get("stages", [])),
+                "kinetics_error": self.results.get("_kinetics_error", "none"),
+                "kinetics_html_len": len(str(html_report_kinetics)) if html_report_kinetics else 0,
+                "qc_engine_errors": [
+                    f"{e.get('engine')}: {e.get('error')}"
+                    for e in self._qc_log.get("engine_errors", [])
+                ],
             }
         }
         return self._last_report
