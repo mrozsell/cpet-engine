@@ -1027,6 +1027,12 @@ class CPET_Orchestrator:
             self.results,
             self.cfg)
 
+        # E21: Kinetic Phenotype (cross-engine: E14 × E02 × E01 × E18)
+        self.results["E21"] = self._safe_run("E21",
+            Engine_E21_KineticPhenotype.run,
+            self.results,
+            self.cfg)
+
         # ── FEEDBACK LOOP: post-validation threshold adjustment ──
         try:
             self._feedback_loop(df_ex)

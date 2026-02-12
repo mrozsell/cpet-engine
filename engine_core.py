@@ -12436,6 +12436,14 @@ def generate_observations(ct):
 
 
 # ═══════════════════════════════════════════════════════════
+# E21 v1.0 — Kinetic Phenotype Engine (inserted from e21_kinetic_phenotype.py)
+# ═══════════════════════════════════════════════════════════
+# See e21_kinetic_phenotype.py for full standalone version
+
+# Engine_E21_KineticPhenotype is defined above (inline)
+
+
+# ═══════════════════════════════════════════════════════════
 # ReportAdapter — imported from report.py (single source of truth)
 # ═══════════════════════════════════════════════════════════
 from report import ReportAdapter
@@ -13573,3 +13581,425 @@ class CPET_Orchestrator:
         return path
 
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# E21: KINETIC PHENOTYPE — VO₂ Kinetics × Thresholds Integration
+# ═══════════════════════════════════════════════════════════════════════
+
+class Engine_E21_KineticPhenotype:
+    """E21 v1.0 — Kinetic Phenotype Classification.
+
+    Cross-engine integrating VO2 kinetics (E14) with thresholds (E02),
+    zones (E16), and concordance data (E18/E19) to produce:
+    1. Domain validation (did CWR speeds match intended domains?)
+    2. Limitation identification (central vs peripheral)
+    3. Fiber-type proxy estimation (from slow component)
+    4. Composite phenotype classification
+    5. Individualized training priorities
+
+    References:
+      Poole & Jones 2012, Barstow et al. 1996, Jones et al. 2011,
+      Burnley & Jones 2007, Iannetta et al. 2020, Inglis et al. 2024
+    """
+
+    TAU_BANDS = {
+        'moderate': [(15, 'ELITE'), (25, 'TRAINED'), (40, 'ACTIVE'), (999, 'SLOW')],
+        'heavy': [(20, 'ELITE'), (35, 'TRAINED'), (50, 'ACTIVE'), (999, 'SLOW')],
+    }
+    SC_BANDS = [(3, 'MINIMAL'), (8, 'LOW'), (15, 'NORMAL'), (25, 'HIGH'), (999, 'VERY_HIGH')]
+    RECOVERY_BANDS = [(30, 'EXCELLENT'), (60, 'GOOD'), (90, 'MODERATE'), (120, 'SLOW'), (999, 'VERY_SLOW')]
+
+    PHENOTYPES = {
+        'ELITE_AEROBIC':     {'label_pl': 'Elitarny Aerobowy',       'icon': '\U0001f3c5', 'desc': 'Zoptymalizowany system tlenowy — szybka kinetyka, minimalny SC, wysokie progi',                  'archetype': 'Maratończyk elite, Ironman PRO'},
+        'DIESEL':            {'label_pl': 'Diesel',                   'icon': '\U0001f682', 'desc': 'Silny motor aerobowy — efektywna ekonomia mięśniowa, dobra wytrzymałość',                       'archetype': 'Ultramaraton, triathlon LD, HYROX PRO'},
+        'TEMPO_RUNNER':      {'label_pl': 'Tempo Runner',             'icon': '\U0001f3c3', 'desc': 'Dobra kinetyka, umiarkowany SC — profil 10K-półmaraton',                                       'archetype': '10K, półmaraton, cross-country'},
+        'BURST_RECOVER':     {'label_pl': 'Burst & Recover',          'icon': '\u26a1',     'desc': 'Wolniejsza aktywacja ale dobra recovery — profil sportów powtarzalnych',                       'archetype': 'HYROX, CrossFit, sporty zespołowe'},
+        'POWER_ENDURANCE':   {'label_pl': 'Power-Endurance',          'icon': '\U0001f4aa', 'desc': 'Wysoki udział Type II — duży SC, szybka moc ale ograniczona wytrzymałość',                     'archetype': 'Sprint, CrossFit, sporty siłowo-wytrzymałościowe'},
+        'DELIVERY_LIMITED':  {'label_pl': 'Limitowany Centralnie',    'icon': '\u2764\ufe0f','desc': 'Dobra muskulatura ale O₂ delivery limituje heavy domain',                                   'archetype': 'Potencjał do poprawy — trening progowy'},
+        'PERIPHERAL_LIMITED':{'label_pl': 'Limitowany Obwodowo',      'icon': '\U0001fab1', 'desc': 'Wolna kinetyka + wysoki SC → limitacja mitochondrialna/kapilarna',                            'archetype': 'Potencjał do poprawy — baza aerobowa + HIIT'},
+        'DEVELOPING':        {'label_pl': 'Rozwijający się',          'icon': '\U0001f4c8', 'desc': 'Profil w trakcie adaptacji — mieszane cechy',                                                 'archetype': 'Początkujący lub w okresie budowy bazy'},
+    }
+
+    @classmethod
+    def _classify(cls, value, bands):
+        if value is None: return None
+        for threshold, label in bands:
+            if value <= threshold: return label
+        return bands[-1][1]
+
+    @classmethod
+    def run(cls, results: dict, cfg=None) -> dict:
+        import numpy as np
+
+        out = {
+            'status': 'OK', 'engine': 'E21', 'version': '1.0', 'flags': [],
+            'domain_validation': {}, 'kinetic_profile': {}, 'limitation': {},
+            'fiber_type_proxy': {}, 'phenotype': None, 'phenotype_confidence': 0,
+            'phenotype_info': {}, 'training_priorities': [], 'summary': {},
+        }
+
+        def _g(ek, fld, default=None):
+            e = results.get(ek, {})
+            if not isinstance(e, dict): return default
+            v = e.get(fld, default)
+            if v is None: return default
+            try: return float(v)
+            except (TypeError, ValueError): return v
+
+        e14 = results.get('E14', {}) or {}
+        e02 = results.get('E02', {}) or {}
+        e01 = results.get('E01', {}) or {}
+        e18 = results.get('E18', {}) or {}
+
+        if not isinstance(e14, dict): e14 = {}
+        if not isinstance(e02, dict): e02 = {}
+
+        if e14.get('status') != 'OK' or e14.get('mode') != 'CWR_KINETICS':
+            out['status'] = 'NO_KINETICS_DATA'
+            out['flags'].append('E14 nie zwrócił danych CWR — fenotyp niemożliwy')
+            if e14.get('mode') == 'INCREMENTAL':
+                out['status'] = 'INCREMENTAL_ONLY'
+                out['flags'].append('Tylko off-kinetics z testu inkrementalnego')
+                cls._incremental_fallback(out, e14)
+            return out
+
+        stages = e14.get('stages', [])
+        if not stages:
+            out['status'] = 'NO_STAGES'
+            out['flags'].append('E14 nie wykrył stage CWR')
+            return out
+
+        e14_sum = e14.get('summary', {})
+
+        # ── Reference values from E02/E01 ──
+        vt1_vo2 = _g('E02', 'vt1_vo2_abs') or _g('E02', 'vt1_vo2_mlmin')
+        vt2_vo2 = _g('E02', 'vt2_vo2_abs') or _g('E02', 'vt2_vo2_mlmin')
+        vo2max = _g('E01', 'vo2peak_abs_mlmin') or _g('E01', 'vo2max_abs')
+
+        vt1_speed = None
+        vt2_speed = None
+        for k in ['vt1_speed_kmh', 'vt1_v_kmh']:
+            v = e02.get(k)
+            if v is not None:
+                try: vt1_speed = float(v); break
+                except: pass
+        for k in ['vt2_speed_kmh', 'vt2_v_kmh']:
+            v = e02.get(k)
+            if v is not None:
+                try: vt2_speed = float(v); break
+                except: pass
+
+        # ═══════════════════════════════════════
+        # 1. DOMAIN VALIDATION
+        # ═══════════════════════════════════════
+        dv = {'vt1_speed_kmh': vt1_speed, 'vt2_speed_kmh': vt2_speed, 'vo2max_abs': vo2max, 'stages': []}
+
+        for s in stages:
+            sd = {k: s.get(k) for k in ('stage_num', 'speed_kmh', 'domain', 'vo2_mean', 'vo2kg_mean', 'hr_mean', 'rer_mean', 'duration_s')}
+            speed = s.get('speed_kmh')
+            if speed and vt1_speed and vt1_speed > 0:
+                sd['pct_vt1_speed'] = round(speed / vt1_speed * 100, 1)
+            if speed and vt2_speed and vt2_speed > 0:
+                sd['pct_vt2_speed'] = round(speed / vt2_speed * 100, 1)
+            vo2_abs = s.get('vo2_mean')
+            if vo2_abs and vo2max and vo2max > 0:
+                sd['pct_vo2max'] = round(vo2_abs / vo2max * 100, 1)
+            # Expected domain
+            if speed and vt1_speed and vt2_speed:
+                pv1 = speed / vt1_speed * 100
+                pv2 = speed / vt2_speed * 100
+                if pv1 < 92:      sd['domain_expected'] = 'MODERATE'
+                elif pv2 < 95:    sd['domain_expected'] = 'HEAVY'
+                elif pv2 < 112:   sd['domain_expected'] = 'SEVERE'
+                else:             sd['domain_expected'] = 'VERY_SEVERE'
+                det = (sd.get('domain') or '').upper()
+                exp = sd['domain_expected']
+                sd['domain_match'] = (det == exp) or (det in ('HEAVY','SEVERE') and exp in (det, 'VERY_SEVERE', 'MODERATE'))
+                if not sd.get('domain_match', True):
+                    out['flags'].append(f"DOMAIN_MISMATCH_S{s.get('stage_num')}: detected={det}, expected={exp}")
+            dv['stages'].append(sd)
+        out['domain_validation'] = dv
+
+        # ═══════════════════════════════════════
+        # 2. KINETIC PROFILE
+        # ═══════════════════════════════════════
+        kp = {}
+        tau_mod = e14_sum.get('tau_moderate')
+        tau_heavy = e14_sum.get('tau_heavy')
+        tau_severe = e14_sum.get('tau_severe')
+        sc_heavy = e14_sum.get('sc_heavy_pct')
+        sc_severe = e14_sum.get('sc_severe_pct')
+        recovery_t_half = e14_sum.get('recovery_t_half')
+
+        if tau_mod is not None:
+            kp['tau_moderate'] = tau_mod
+            kp['tau_moderate_class'] = cls._classify(tau_mod, cls.TAU_BANDS['moderate'])
+        if tau_heavy is not None:
+            kp['tau_heavy'] = tau_heavy
+            kp['tau_heavy_class'] = cls._classify(tau_heavy, cls.TAU_BANDS['heavy'])
+        if tau_severe is not None:
+            kp['tau_severe'] = tau_severe
+        if tau_mod and tau_heavy and tau_mod > 0:
+            ratio = tau_heavy / tau_mod
+            kp['tau_ratio_heavy_mod'] = round(ratio, 2)
+            kp['tau_ratio_interpretation'] = 'DISCORDANT' if ratio > 2.0 else ('INVERTED' if ratio < 0.7 else 'NORMAL')
+            if ratio > 2.0: out['flags'].append('TAU_RATIO_HIGH')
+
+        if sc_heavy is not None:
+            kp['sc_heavy_pct'] = sc_heavy
+            kp['sc_heavy_class'] = cls._classify(sc_heavy, cls.SC_BANDS)
+        if sc_severe is not None:
+            kp['sc_severe_pct'] = sc_severe
+            kp['sc_severe_class'] = cls._classify(sc_severe, cls.SC_BANDS)
+        if recovery_t_half is not None:
+            kp['recovery_t_half'] = recovery_t_half
+            kp['recovery_class'] = cls._classify(recovery_t_half, cls.RECOVERY_BANDS)
+
+        s4_stages = [s for s in stages if s.get('stage_num') == 4]
+        if s4_stages:
+            s4_dur = s4_stages[0].get('duration_s', 0) or 0
+            kp['s4_duration_s'] = s4_dur
+            kp['s4_cut_short'] = s4_dur < 300
+            if kp['s4_cut_short']: out['flags'].append(f"S4_CUT_SHORT_{s4_dur:.0f}s")
+
+        if vt1_vo2 and vo2max and vo2max > 0:
+            kp['vt1_pct_vo2max'] = round(vt1_vo2 / vo2max * 100, 1)
+        if vt2_vo2 and vo2max and vo2max > 0:
+            kp['vt2_pct_vo2max'] = round(vt2_vo2 / vo2max * 100, 1)
+        if kp.get('vt1_pct_vo2max') and kp.get('vt2_pct_vo2max'):
+            kp['heavy_zone_width_pct'] = round(kp['vt2_pct_vo2max'] - kp['vt1_pct_vo2max'], 1)
+
+        out['kinetic_profile'] = kp
+
+        # ═══════════════════════════════════════
+        # 3. LIMITATION IDENTIFICATION
+        # ═══════════════════════════════════════
+        lim = {'primary': None, 'evidence': []}
+        class_order = {'ELITE': 0, 'TRAINED': 1, 'ACTIVE': 2, 'SLOW': 3}
+        tc_mod = kp.get('tau_moderate_class')
+        tc_hvy = kp.get('tau_heavy_class')
+        sc_c = kp.get('sc_heavy_class')
+
+        if tc_mod and tc_hvy:
+            mr = class_order.get(tc_mod, 2)
+            hr = class_order.get(tc_hvy, 2)
+            if mr <= 1 and hr <= 1:
+                lim['primary'] = 'WELL_INTEGRATED'
+                lim['evidence'].append(f'τ mod={tc_mod} + τ heavy={tc_hvy} → system zintegrowany')
+            elif mr <= 1 and hr >= 2:
+                lim['primary'] = 'DELIVERY_LIMITED'
+                lim['evidence'].append(f'τ mod={tc_mod} OK ale τ heavy={tc_hvy} wolne → O₂ delivery')
+            elif mr >= 2 and hr >= 2:
+                lim['primary'] = 'PERIPHERAL_LIMITED'
+                lim['evidence'].append(f'τ mod={tc_mod} + τ heavy={tc_hvy} → ograniczenie mitochondrialne')
+            else:
+                lim['primary'] = 'CHECK_DATA'
+                lim['evidence'].append(f'τ mod wolniejsze niż heavy — nietypowe')
+                out['flags'].append('UNUSUAL_TAU_PATTERN')
+
+        if sc_c and lim['primary']:
+            if sc_c in ('HIGH', 'VERY_HIGH') and lim['primary'] == 'WELL_INTEGRATED':
+                lim['secondary'] = 'EFFICIENCY_GAP'
+                lim['evidence'].append(f'SC={sc_c} pomimo szybkiego τ → dominacja Type II')
+            elif sc_c in ('MINIMAL', 'LOW') and lim['primary'] == 'PERIPHERAL_LIMITED':
+                lim['primary'] = 'DELIVERY_LIMITED'
+                lim['evidence'].append(f'SC={sc_c} pomimo wolnego τ → reklasyfikacja na delivery')
+
+        if isinstance(e18, dict) and e18.get('status') == 'OK':
+            l3 = e18.get('layer3_concordance', {})
+            if isinstance(l3, dict) and l3.get('overall_grade') == 'POOR':
+                if lim['primary'] in ('DELIVERY_LIMITED', 'CHECK_DATA'):
+                    lim['evidence'].append('E18 concordance POOR potwierdza problem delivery')
+        out['limitation'] = lim
+
+        # ═══════════════════════════════════════
+        # 4. FIBER TYPE PROXY
+        # ═══════════════════════════════════════
+        ftp = {'method': 'SC-based proxy (Barstow 1996)', 'confidence': 'LOW',
+               'note': 'Pośrednia estymacja — nie zastępuje biopsji mięśniowej'}
+        if sc_heavy is not None:
+            if sc_heavy < 3:
+                ftp.update(estimated_type_I_pct='65-80%', estimated_type_II_pct='20-35%', profile='ENDURANCE_DOMINANT')
+            elif sc_heavy < 8:
+                ftp.update(estimated_type_I_pct='50-65%', estimated_type_II_pct='35-50%', profile='MIXED')
+            elif sc_heavy < 15:
+                ftp.update(estimated_type_I_pct='35-50%', estimated_type_II_pct='50-65%', profile='POWER_BIASED')
+            else:
+                ftp.update(estimated_type_I_pct='20-40%', estimated_type_II_pct='60-80%', profile='POWER_DOMINANT')
+        out['fiber_type_proxy'] = ftp
+
+        # ═══════════════════════════════════════
+        # 5. PHENOTYPE ASSIGNMENT
+        # ═══════════════════════════════════════
+        phenotype, confidence = cls._assign_phenotype(kp, lim, ftp)
+        out['phenotype'] = phenotype
+        out['phenotype_confidence'] = confidence
+        out['phenotype_info'] = cls.PHENOTYPES.get(phenotype, {})
+
+        # ═══════════════════════════════════════
+        # 6. TRAINING PRIORITIES
+        # ═══════════════════════════════════════
+        out['training_priorities'] = cls._build_priorities(kp, lim, phenotype)
+
+        # ═══════════════════════════════════════
+        # 7. SUMMARY
+        # ═══════════════════════════════════════
+        out['summary'] = {
+            'phenotype': phenotype, 'phenotype_pl': out['phenotype_info'].get('label_pl'),
+            'confidence': confidence, 'limitation': lim.get('primary'),
+            'tau_moderate': kp.get('tau_moderate'), 'tau_moderate_class': kp.get('tau_moderate_class'),
+            'tau_heavy': kp.get('tau_heavy'), 'tau_heavy_class': kp.get('tau_heavy_class'),
+            'sc_heavy_class': kp.get('sc_heavy_class'), 'recovery_class': kp.get('recovery_class'),
+            'fiber_profile': ftp.get('profile'), 'n_priorities': len(out['training_priorities']),
+        }
+        return out
+
+    @classmethod
+    def _assign_phenotype(cls, kp, lim, ftp):
+        tc_mod = kp.get('tau_moderate_class')
+        tc_hvy = kp.get('tau_heavy_class')
+        sc_c = kp.get('sc_heavy_class')
+        rec_c = kp.get('recovery_class')
+        vt1p = kp.get('vt1_pct_vo2max')
+        hw = kp.get('heavy_zone_width_pct')
+        limitation = lim.get('primary')
+
+        scores = {}
+
+        # ELITE_AEROBIC
+        s = 0
+        if tc_mod == 'ELITE': s += 3
+        elif tc_mod == 'TRAINED': s += 1
+        if tc_hvy == 'ELITE': s += 3
+        elif tc_hvy == 'TRAINED': s += 1
+        if sc_c in ('MINIMAL', 'LOW'): s += 2
+        if vt1p and vt1p > 75: s += 2
+        elif vt1p and vt1p > 70: s += 1
+        scores['ELITE_AEROBIC'] = s
+
+        # DIESEL
+        s = 0
+        if tc_mod in ('ELITE', 'TRAINED'): s += 2
+        if sc_c == 'MINIMAL': s += 3
+        elif sc_c == 'LOW': s += 1
+        if vt1p and vt1p > 65: s += 2
+        elif vt1p and vt1p > 60: s += 1
+        if limitation == 'WELL_INTEGRATED': s += 1
+        if hw and hw > 15: s += 1
+        scores['DIESEL'] = s
+
+        # TEMPO_RUNNER
+        s = 0
+        if tc_mod == 'TRAINED': s += 2
+        elif tc_mod == 'ACTIVE': s += 1
+        if sc_c in ('LOW', 'NORMAL'): s += 2
+        if vt1p and 60 <= vt1p <= 75: s += 2
+        if tc_hvy in ('TRAINED', 'ACTIVE'): s += 1
+        if hw and 10 <= hw <= 20: s += 1
+        scores['TEMPO_RUNNER'] = s
+
+        # BURST_RECOVER
+        s = 0
+        if tc_mod in ('ACTIVE', 'SLOW'): s += 1
+        if rec_c in ('EXCELLENT', 'GOOD'): s += 3
+        elif rec_c == 'MODERATE': s += 1
+        if sc_c in ('NORMAL', 'HIGH'): s += 1
+        scores['BURST_RECOVER'] = s
+
+        # POWER_ENDURANCE
+        s = 0
+        if sc_c in ('HIGH', 'VERY_HIGH'): s += 3
+        if ftp.get('profile') in ('POWER_BIASED', 'POWER_DOMINANT'): s += 2
+        if tc_mod in ('ACTIVE', 'SLOW'): s += 1
+        if vt1p and vt1p < 60: s += 1
+        scores['POWER_ENDURANCE'] = s
+
+        # DELIVERY_LIMITED
+        s = 0
+        if limitation == 'DELIVERY_LIMITED': s += 4
+        if tc_mod in ('ELITE', 'TRAINED') and tc_hvy in ('ACTIVE', 'SLOW'): s += 2
+        if kp.get('tau_ratio_interpretation') == 'DISCORDANT': s += 2
+        scores['DELIVERY_LIMITED'] = s
+
+        # PERIPHERAL_LIMITED
+        s = 0
+        if limitation == 'PERIPHERAL_LIMITED': s += 4
+        if tc_mod in ('ACTIVE', 'SLOW') and tc_hvy in ('ACTIVE', 'SLOW'): s += 2
+        if sc_c in ('HIGH', 'VERY_HIGH'): s += 1
+        if vt1p and vt1p < 55: s += 1
+        scores['PERIPHERAL_LIMITED'] = s
+
+        scores['DEVELOPING'] = 2
+
+        best = max(scores, key=scores.get)
+        best_score = scores[best]
+        srt = sorted(scores.values(), reverse=True)
+        if len(srt) > 1 and srt[0] > 0:
+            sep = (srt[0] - srt[1]) / srt[0]
+            conf = min(0.95, 0.5 + sep * 0.5)
+        else:
+            conf = 0.5
+        if best_score < 3:
+            return 'DEVELOPING', 0.3
+        return best, round(conf, 2)
+
+    @classmethod
+    def _build_priorities(cls, kp, lim, phenotype):
+        prios = []
+        tau_mod = kp.get('tau_moderate')
+        tau_heavy = kp.get('tau_heavy')
+        tc_mod = kp.get('tau_moderate_class')
+        tc_hvy = kp.get('tau_heavy_class')
+        sc_c = kp.get('sc_heavy_class')
+        rec_c = kp.get('recovery_class')
+        limitation = lim.get('primary')
+
+        if limitation == 'DELIVERY_LIMITED':
+            prios.append({'priority': 1, 'area': 'O₂ delivery (τ heavy)',
+                'method': 'Threshold runs 20-30 min w okolicach VT1', 'frequency': '2-3×/tyg',
+                'target': f'τ heavy {tau_heavy:.0f}→{max(15,tau_heavy*0.7):.0f}s' if tau_heavy else 'poprawić τ heavy',
+                'rationale': 'Poprawia cardiac output i kapilaryzację (Inglis 2024)'})
+        elif limitation == 'PERIPHERAL_LIMITED':
+            prios.append({'priority': 1, 'area': 'Zdolność oksydacyjna (τ moderate)',
+                'method': 'Baza aerobowa (60-75% HRmax) + HIIT 2×/tyg',
+                'target': f'τ mod {tau_mod:.0f}→{max(12,tau_mod*0.7):.0f}s' if tau_mod else 'poprawić τ',
+                'frequency': '4-5× baza + 2× HIIT', 'rationale': 'Gęstość mitochondrialna (Poole 2012)'})
+
+        if tc_mod in ('ACTIVE', 'SLOW') and not any(p.get('area','').startswith('Zdolność') for p in prios):
+            prios.append({'priority': len(prios)+1, 'area': 'Kinetyka moderate (τ on)',
+                'method': 'HIIT 30/30s lub 60/60s w severe domain', 'frequency': '2×/tyg',
+                'target': f'τ {tau_mod:.0f}→{max(12,tau_mod*0.65):.0f}s' if tau_mod else '<25s',
+                'rationale': 'HIIT najskuteczniej przyspiesza τ (Inglis 2024)'})
+        elif tc_mod == 'TRAINED':
+            prios.append({'priority': len(prios)+1, 'area': 'Kinetyka moderate → ELITE',
+                'method': 'SIT (4×30s all-out) + tempo runs', 'frequency': '1-2×/tyg',
+                'target': f'τ {tau_mod:.0f}→{max(10,tau_mod*0.7):.0f}s' if tau_mod else '<15s',
+                'rationale': 'Na poziomie TRAINED potrzebne bodźce SIT/extreme'})
+
+        if sc_c in ('HIGH', 'VERY_HIGH'):
+            prios.append({'priority': len(prios)+1, 'area': 'Slow Component (ekonomia)',
+                'method': 'Baza aerobowa + trening siłowy niska kadencja',
+                'target': 'SC heavy <8%', 'frequency': '3× baza + 2× siła/tyg',
+                'rationale': 'Zmniejsza rekrutację Type II (Jones 2011)'})
+        elif sc_c in ('MINIMAL', 'LOW'):
+            prios.append({'priority': len(prios)+1, 'area': 'Utrzymanie ekonomii',
+                'method': 'Kontynuacja bazy wytrzymałościowej',
+                'target': 'SC heavy <3%', 'frequency': 'bez zmian',
+                'rationale': 'Doskonała ekonomia — nie zmieniać'})
+
+        if rec_c in ('SLOW', 'VERY_SLOW'):
+            prios.append({'priority': len(prios)+1, 'area': 'Recovery kinetics',
+                'method': 'Repeat-sprint 6×30s >VT2, 3min rest', 'frequency': '1×/tyg',
+                'target': 'T½ <60s', 'rationale': 'Poprawia off-kinetics'})
+        return prios
+
+    @classmethod
+    def _incremental_fallback(cls, out, e14):
+        t_half = e14.get('T_half_VO2_simple_s') or e14.get('T_half_VO2_s')
+        if t_half is not None:
+            t_half = float(t_half)
+            rc = cls._classify(t_half, cls.RECOVERY_BANDS)
+            out['kinetic_profile'] = {'recovery_t_half': t_half, 'recovery_class': rc,
+                'note': 'Tylko off-kinetics — brak τ on i SC'}
+            out['summary'] = {'phenotype': None, 'recovery_class': rc, 'recovery_t_half': t_half,
+                'note': 'Pełna fenotypizacja wymaga testu CWR'}
