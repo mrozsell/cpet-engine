@@ -575,6 +575,29 @@ if "cpet_results" in st.session_state:
     has_lite = _lite_html is not None and len(str(_lite_html)) > 100
     _kinetics_html = results.get("html_report_kinetics")
     has_kinetics = _kinetics_html is not None and len(str(_kinetics_html)) > 100
+
+    # DEBUG: Show E14 diagnostic info
+    _e14_debug = results.get("raw_results", {}).get("E14", {})
+    if is_kinetics:
+        _dbg_mode = _e14_debug.get("mode", "NO_E14")
+        _dbg_stages = len(_e14_debug.get("stages", []))
+        _dbg_status = _e14_debug.get("status", "?")
+        _dbg_kin_len = len(str(_kinetics_html)) if _kinetics_html else 0
+        with st.expander("🔬 Diagnostyka raportu kinetycznego", expanded=True):
+            st.code(f"""E14.mode = {_dbg_mode}
+E14.status = {_dbg_status}
+E14.stages = {_dbg_stages}
+html_report_kinetics = {_dbg_kin_len} chars
+has_kinetics = {has_kinetics}
+config.protocol = {results.get('raw_results',{}).get('_config_protocol','?')}
+config.speeds = {results.get('raw_results',{}).get('_config_speeds','?')}""")
+            # Check engine errors
+            _all_errs = results.get("raw_results", {}).get("_qc_log", {}).get("engine_errors", [])
+            if _all_errs:
+                st.warning(f"Engine errors: {len(_all_errs)}")
+                for _err in _all_errs:
+                    st.code(f"{_err.get('engine')}: {_err.get('error')}")
+
     if is_kinetics and has_kinetics:
         html_content = _kinetics_html
         report_label = "KINETICS"

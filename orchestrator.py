@@ -1011,6 +1011,10 @@ class CPET_Orchestrator:
             Engine_E14_Kinetics.run,
             self.results,
             {"_df_processed": self.processed, "_acfg": self.cfg})
+        # E14 diagnostic
+        _e14r = self.results.get("E14", {})
+        print(f"  🔬 E14 result: mode={_e14r.get('mode','?')}, status={_e14r.get('status','?')}, stages={len(_e14r.get('stages',[]))}")
+        print(f"  🔬 Config: protocol={self.cfg.protocol_name}, speeds={getattr(self.cfg, 'kinetics_speeds_kmh', 'MISSING')}")
         self.results["E15"] = self._safe_run("E15", Engine_E15_Normalization.run, self.results, self.cfg.body_mass_kg, getattr(self.cfg, "age_y", None), getattr(self.cfg, "sex", "male"), getattr(self.cfg, "modality", "run"), getattr(self.cfg, "height_cm", None))
 
         # E18: VT↔LT Cross-Validation (requires E02 + E11)
@@ -1091,15 +1095,22 @@ class CPET_Orchestrator:
         html_report_kinetics = None
         try:
             e14_data = self.results.get('E14', {})
-            if e14_data.get('mode') == 'CWR_KINETICS' and e14_data.get('stages'):
+            _e14_mode = e14_data.get('mode', 'NONE')
+            _e14_stages = len(e14_data.get('stages', []))
+            print(f"  🔬 Kinetics check: E14.mode={_e14_mode}, stages={_e14_stages}")
+            if _e14_mode == 'CWR_KINETICS' and e14_data.get('stages'):
                 from report import render_kinetics_report, generate_kinetics_charts, inject_kinetics_charts
                 _kin_ct = dict(canon_table) if canon_table else {}
                 _kin_ct['sport'] = getattr(self.cfg, 'sport', '') or getattr(self.cfg, 'modality', 'run') or 'run'
                 html_report_kinetics = render_kinetics_report(self.results, _kin_ct, self.processed)
+                print(f"  🔬 Kinetics report rendered: {len(html_report_kinetics)} chars")
                 # Generate and inject charts
                 _kin_charts = generate_kinetics_charts(self.processed, self.results)
                 if _kin_charts:
                     html_report_kinetics = inject_kinetics_charts(html_report_kinetics, _kin_charts)
+                    print(f"  🔬 Kinetics charts injected: {list(_kin_charts.keys())}")
+            else:
+                print(f"  🔬 Kinetics report SKIPPED: mode={_e14_mode}, stages={_e14_stages}")
         except Exception as e:
             print(f"⚠️ Kinetics report generation error: {e}")
             import traceback; traceback.print_exc()
@@ -1111,7 +1122,11 @@ class CPET_Orchestrator:
             "text_report": text_report, "html_report": html_report,
             "html_report_lite": html_report_lite,
             "html_report_kinetics": html_report_kinetics,
-            "raw_results": self.results
+            "raw_results": {**self.results,
+                "_config_protocol": self.cfg.protocol_name,
+                "_config_speeds": str(getattr(self.cfg, 'kinetics_speeds_kmh', 'MISSING')),
+                "_qc_log": self._qc_log,
+            }
         }
         return self._last_report
 
