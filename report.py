@@ -5250,9 +5250,8 @@ def render_kinetics_report(results: dict, ct: dict, df=None) -> str:
     vt2_pct = kin_profile.get('vt2_pct_vo2max')
     heavy_width = kin_profile.get('heavy_zone_width_pct')
 
-    # Logo
-    with open('/home/claude/logo_b64.txt') as f:
-        _logo = f.read().strip()
+    # Logo (inline — same SVG as PRO/LITE reports)
+    _logo = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iR8OTUllfeDVGX1dZS1JFUyIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgdmlld0JveD0iMCAwIDkyOS41MiA3MTIuNDIiPgogIDxkZWZzPgogICAgPHN0eWxlPgogICAgICAuY2xzLTEgewogICAgICAgIHN0cm9rZS13aWR0aDogMS41cHg7CiAgICAgIH0KCiAgICAgIC5jbHMtMSwgLmNscy0yLCAuY2xzLTMsIC5jbHMtNCwgLmNscy01IHsKICAgICAgICBmaWxsOiBub25lOwogICAgICB9CgogICAgICAuY2xzLTEsIC5jbHMtMiwgLmNscy0zLCAuY2xzLTUgewogICAgICAgIHN0cm9rZS1taXRlcmxpbWl0OiAxMDsKICAgICAgfQoKICAgICAgLmNscy0xLCAuY2xzLTUgewogICAgICAgIHN0cm9rZTogI2ZmZmZmZjsKICAgICAgfQoKICAgICAgLmNscy0yIHsKICAgICAgICBzdHJva2U6IHJnYmEoMjU1LDI1NSwyNTUsMC44KTsKICAgICAgfQoKICAgICAgLmNscy0yLCAuY2xzLTMsIC5jbHMtNSB7CiAgICAgICAgc3Ryb2tlLXdpZHRoOiAzcHg7CiAgICAgIH0KCiAgICAgIC5jbHMtMyB7CiAgICAgICAgc3Ryb2tlOiByZ2JhKDI1NSwyNTUsMjU1LDAuNSk7CiAgICAgIH0KCiAgICAgIC5jbHMtNiB7CiAgICAgICAgZmlsbDogI2ZmZmZmZjsKICAgICAgfQoKICAgICAgLmNscy03IHsKICAgICAgICBjbGlwLXBhdGg6IHVybCgjY2xpcHBhdGgtMSk7CiAgICAgIH0KCiAgICAgIC5jbHMtOCB7CiAgICAgICAgY2xpcC1wYXRoOiB1cmwoI2NsaXBwYXRoKTsKICAgICAgfQogICAgPC9zdHlsZT4KICA8L2RlZnM+CiAgPGc+PHBhdGggY2xhc3M9ImNscy02IiBkPSJNNjcyLjYzLDM3Ni4ySDY5LjMydjI1OC40aDc4NXYtMjU4LjRoLTE4MS42OVoiLz48L2c+Cjwvc3ZnPg=="
 
     # ═══════════════════════════════════════════════════════
     # BUILD HTML
