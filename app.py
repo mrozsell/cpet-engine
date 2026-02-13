@@ -75,6 +75,7 @@ PROTOCOL_MAP = {
     "RUN_STEP_1KMH": "🏃 Bieżnia — Step +1 km/h / 2 min",
     "RUN_STEP_05KMH": "🏃 Bieżnia — Step +0.5 km/h / 2 min",
     "BIKE_STEP_20W": "🚴 Rower — Step +20 W / 2 min",
+    "ROW_ERG_WOMAN_25W": "🚣 Ergometr wioślarski — Step +25 W / 2 min (K)",
 }
 
 # ════════════════════════════════════════════════════════
@@ -234,6 +235,25 @@ with st.sidebar:
             ks4 = st.number_input("S4: >VT2", min_value=3.0, max_value=25.0,
                                   value=16.7, step=0.1, help="Powyżej VT2 (severe)")
         kinetics_speeds = [ks1, ks2, ks3, ks4]
+
+    # ── Interactive protocol chart ──
+    if protocol not in ("AUTO", "KINETICS"):
+        _raw_segs = RAW_PROTOCOLS.get(protocol, [])
+        if _raw_segs:
+            _chart_t, _chart_v, _chart_label = [], [], []
+            for _seg in _raw_segs:
+                _s = _seg.get("start", "0:00"); _e = _seg.get("end", "0:00")
+                _ts = sum(int(x)*m for x, m in zip(_s.split(":"), [60, 1]))
+                _te = sum(int(x)*m for x, m in zip(_e.split(":"), [60, 1]))
+                _pw = _seg.get("power_w"); _sp = _seg.get("speed_kmh", 0)
+                _val = _pw if _pw is not None else _sp
+                _lbl = f"{_pw}W" if _pw is not None else f"{_sp} km/h"
+                _chart_t += [_ts/60, _te/60]; _chart_v += [_val, _val]; _chart_label += [_lbl, _lbl]
+            import pandas as _pd_chart
+            _chart_df = _pd_chart.DataFrame({"min": _chart_t, "wartość": _chart_v})
+            _y_label = "Moc (W)" if any(s.get("power_w") is not None for s in _raw_segs) else "Prędkość (km/h)"
+            st.caption(f"📊 Profil protokołu: {PROTOCOL_MAP.get(protocol, protocol)}")
+            st.line_chart(_chart_df, x="min", y="wartość", height=200)
 
     MODALITY_MAP = {
         "run": "🏃 Bieg", "bike": "🚴 Kolarstwo", "triathlon": "🏊 Triathlon",

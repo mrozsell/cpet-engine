@@ -157,6 +157,26 @@ RAW_PROTOCOLS = {
         {"type":"const", "start":"31:00", "end":"33:00", "power_w":340, "speed_kmh":0.0},
         {"type":"const", "start":"33:00", "end":"35:00", "power_w":360, "speed_kmh":0.0},
     ],
+
+    # ═══════════════════════════════════════════════════════════════
+    # 5. ROW_ERG_WOMAN_25W — Ergometr wioślarski, kobiety, step +25 W / 2 min
+    #    Start 50 W, test do odmowy
+    #    Typowy zakres: 50–225 W (rozpisane do 300 W na wypadek)
+    # ═══════════════════════════════════════════════════════════════
+    "ROW_ERG_WOMAN_25W": [
+        {"type":"const", "start":"00:00", "end":"01:00", "power_w":0, "speed_kmh":0.0},
+        {"type":"const", "start":"01:00", "end":"03:00", "power_w":50, "speed_kmh":0.0},
+        {"type":"const", "start":"03:00", "end":"05:00", "power_w":75, "speed_kmh":0.0},
+        {"type":"const", "start":"05:00", "end":"07:00", "power_w":100, "speed_kmh":0.0},
+        {"type":"const", "start":"07:00", "end":"09:00", "power_w":125, "speed_kmh":0.0},
+        {"type":"const", "start":"09:00", "end":"11:00", "power_w":150, "speed_kmh":0.0},
+        {"type":"const", "start":"11:00", "end":"13:00", "power_w":175, "speed_kmh":0.0},
+        {"type":"const", "start":"13:00", "end":"15:00", "power_w":200, "speed_kmh":0.0},
+        {"type":"const", "start":"15:00", "end":"17:00", "power_w":225, "speed_kmh":0.0},
+        {"type":"const", "start":"17:00", "end":"19:00", "power_w":250, "speed_kmh":0.0},
+        {"type":"const", "start":"19:00", "end":"21:00", "power_w":275, "speed_kmh":0.0},
+        {"type":"const", "start":"21:00", "end":"23:00", "power_w":300, "speed_kmh":0.0},
+    ],
 }
 
 
