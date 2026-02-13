@@ -237,8 +237,8 @@ with st.sidebar:
         kinetics_speeds = [ks1, ks2, ks3, ks4]
 
     # ── Interactive protocol chart ──
-    if protocol not in ("AUTO", "KINETICS"):
-        _raw_segs = RAW_PROTOCOLS.get(protocol, [])
+    if protocol not in ("AUTO", "KINETICS") and _engine_loaded:
+        _raw_segs = ec.RAW_PROTOCOLS.get(protocol, [])
         if _raw_segs:
             _chart_t, _chart_v, _chart_label = [], [], []
             for _seg in _raw_segs:
