@@ -4584,10 +4584,19 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         # VT1/VT2 cards
         h += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
         if vt1_hr:
-            _vt1_spd = f' | {_n(vt1_speed,".1f")} km/h' if vt1_speed else ''
+            _vt1_pwr = g('VT1_Power')
+            _is_power_dev = g('test_device','') in ('bike_erg','rowing_erg')
+            if _is_power_dev and _vt1_pwr:
+                _vt1_spd = f' | {_n(_vt1_pwr,".0f")} W'
+            else:
+                _vt1_spd = f' | {_n(vt1_speed,".1f")} km/h' if vt1_speed else ''
             h += f'<div style="flex:1;min-width:180px;padding:12px;background:#eff6ff;border-radius:10px;border-left:4px solid #3b82f6;"><div style="font-size:11px;color:#475569;font-weight:600;">1. pr\u00f3g wentylacyjny (VT1)</div><div style="font-size:22px;font-weight:700;color:#2563eb;">\u2764\ufe0f {_n(vt1_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt1_pct,".0f")}% VO\u2082max{_vt1_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Poni\u017cej tego t\u0119tna \u2014 spalasz g\u0142\u00f3wnie t\u0142uszcze</div></div>'
         if vt2_hr:
-            _vt2_spd = f' | {_n(vt2_speed,".1f")} km/h' if vt2_speed else ''
+            _vt2_pwr = g('VT2_Power')
+            if _is_power_dev and _vt2_pwr:
+                _vt2_spd = f' | {_n(_vt2_pwr,".0f")} W'
+            else:
+                _vt2_spd = f' | {_n(vt2_speed,".1f")} km/h' if vt2_speed else ''
             h += f'<div style="flex:1;min-width:180px;padding:12px;background:#fef2f2;border-radius:10px;border-left:4px solid #ef4444;"><div style="font-size:11px;color:#475569;font-weight:600;">2. pr\u00f3g wentylacyjny (VT2)</div><div style="font-size:22px;font-weight:700;color:#dc2626;">\u2764\ufe0f {_n(vt2_hr,".0f")} bpm</div><div style="font-size:11px;color:#64748b;">{_n(vt2_pct,".0f")}% VO\u2082max{_vt2_spd}</div><div style="font-size:10px;color:#94a3b8;margin-top:4px;">Powy\u017cej tego \u2014 organizm nie nad\u0105\u017ca z usuwaniem mleczanu</div></div>'
         h += '</div>'
 
@@ -4596,7 +4605,13 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             zd = zones_data.get(zkey, {})
             hr_lo = zd.get('hr_low','?'); hr_hi = zd.get('hr_high','?')
             spd_lo = zd.get('speed_low',''); spd_hi = zd.get('speed_high','')
-            spd_str = f' | {_n(spd_lo,".1f","")}-{_n(spd_hi,".1f","")} km/h' if spd_lo else ''
+            pwr_lo = zd.get('power_low',''); pwr_hi = zd.get('power_high','')
+            if _is_power_dev and pwr_lo:
+                spd_str = f' | {_n(pwr_lo,".0f","")}-{_n(pwr_hi,".0f","")} W'
+            elif spd_lo:
+                spd_str = f' | {_n(spd_lo,".1f","")}-{_n(spd_hi,".1f","")} km/h'
+            else:
+                spd_str = ''
 
             h += f'''<div style="display:flex;align-items:center;gap:12px;padding:10px;margin-bottom:6px;border-radius:10px;background:{'#fafafa' if i%2==0 else 'white'};">
   <div style="width:14px;height:14px;border-radius:50%;background:{zcol};flex-shrink:0;"></div>
