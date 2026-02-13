@@ -6488,8 +6488,9 @@ def generate_kinetics_charts(df, results):
                     charts['radar'] = _f2b(fig)
         except: pass
 
-    except ImportError:
-        pass
+    except Exception as _chart_err:
+        print(f"⚠️ generate_kinetics_charts error: {_chart_err}")
+        import traceback; traceback.print_exc()
     return charts
 
 

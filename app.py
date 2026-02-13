@@ -610,14 +610,14 @@ if "cpet_results" in st.session_state:
         with st.expander("📋 Raport tekstowy (dla trenerów)"):
             st.text(results["text_report"])
 
-    # ── VO₂ Kinetics display (E14 CWR mode) ──
+    # ── VO₂ Kinetics display (E14 CWR mode) — only if kinetics HTML report not shown ──
     _e14 = {}
     _raw = results.get("raw_results", {})
     if isinstance(_raw, dict):
         _e14 = _raw.get("E14", {})
     if not _e14:
         _e14 = results.get("E14", {})
-    if _e14.get("mode") == "CWR_KINETICS" and _e14.get("stages"):
+    if _e14.get("mode") == "CWR_KINETICS" and _e14.get("stages") and not has_kinetics:
         with st.expander("🔬 Kinetyka VO₂ & Slow Component (E14)", expanded=True):
             st.markdown("### VO₂ Kinetics — Analiza CWR")
             _stages = _e14["stages"]
