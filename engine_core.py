@@ -1873,6 +1873,15 @@ class Engine_E02_Thresholds_v4:
             # Final status
             cls._set_status(result, vt1, vt2)
 
+            # ── NO HR penalty ──
+            if not params.get('has_hr', False):
+                result['flags'].append('NO_HR_DATA')
+                # Explicit confidence penalty — HR confirmation unavailable
+                if result.get('vt1_confidence'):
+                    result['vt1_confidence'] = round(result['vt1_confidence'] * 0.92, 4)
+                if result.get('vt2_confidence'):
+                    result['vt2_confidence'] = round(result['vt2_confidence'] * 0.92, 4)
+
         except Exception as e:
             result['status'] = 'ERROR'
             result['flags'].append(f'EXCEPTION:{type(e).__name__}:{str(e)[:80]}')
@@ -5029,6 +5038,7 @@ class Engine_E07_BreathingPattern:
         t_start=float(t[0]); t_end=float(t[-1]); t_dur=t_end-t_start; n=len(vt_sm)
         # 1. PEAK/REST
         out["bf_peak"]=round(float(np.max(bf_sm)),1)
+
         out["vt_peak_L"]=round(float(np.max(vt_sm)),2)
         r_n=max(5,int(n*0.05))
         out["bf_rest"]=round(float(np.mean(bf_sm[:r_n])),1)
@@ -5145,6 +5155,13 @@ class Engine_E07_BreathingPattern:
         # 12. FLAGS + CLASSIFICATION
         flags=[]
         if out.get("tachypnea_vs_vt2")=="BEFORE_VT2": flags.append("EARLY_TACHYPNEA")
+
+        # Extreme BF tiers
+        _bf_mx = out.get("bf_peak")
+        if _bf_mx and float(_bf_mx) > 120:
+            flags.append("CRITICAL_TACHYPNEA")
+        elif _bf_mx and float(_bf_mx) > 80:
+            flags.append("EXTREME_TACHYPNEA")
         ptvv=out.get("ptvv")
         if ptvv and ptvv>0.25: flags.append("HIGH_PTVV_IRREGULAR")
         elif ptvv and ptvv>0.15: flags.append("MODERATE_PTVV")
@@ -10568,6 +10585,33 @@ class Engine_E15_Normalization:
         out["vo2_class_sport"] = sport_label
         out["vo2_class_sport_desc"] = sport_desc
 
+        # ── BMI / Muscular athlete detection ──
+        bmi = round(mass / (height / 100) ** 2, 1) if (mass and height and height > 0) else None
+        out["bmi"] = bmi
+        out["vo2_allometric_kg075"] = None
+        out["muscular_bmi_flag"] = False
+        out["bmi_note"] = None
+
+        if bmi and bmi > 27 and vo2_peak_mlkgmin and vo2_peak_mlkgmin > 40:
+            # High BMI + high VO2 → muscular, not obese
+            out["muscular_bmi_flag"] = True
+            out["bmi_note"] = (
+                f"BMI {bmi:.0f} z VO2max {vo2_peak_mlkgmin:.0f} ml/kg → profil mięśniowy. "
+                f"Normy populacyjne (Wasserman/FRIEND) mogą być nieadekwatne."
+            )
+        elif bmi and bmi > 30 and vo2_peak_mlkgmin and vo2_peak_mlkgmin > 35:
+            out["muscular_bmi_flag"] = True
+            out["bmi_note"] = (
+                f"BMI {bmi:.0f} z VO2max {vo2_peak_mlkgmin:.0f} ml/kg → prawdopodobnie wysoka masa mięśniowa. "
+                f"Normy populacyjne mogą być nieadekwatne."
+            )
+
+        # Allometric scaling: VO2 / kg^0.75 (Bergh 1991, Lolli 2017)
+        # Better normalization for heavy athletes
+        if vo2_peak_mlmin and mass and mass > 0:
+            allometric = vo2_peak_mlmin / (mass ** 0.75)
+            out["vo2_allometric_kg075"] = round(allometric, 1)
+
         # ================================================================
         # B. O2 PULSE
         # ================================================================
@@ -10735,6 +10779,8 @@ class Engine_E15_Normalization:
             flags.append("VT1_OUTSIDE_EXPECTED_RANGE")
         if out.get("vt2_physiological_check") == "WARNING":
             flags.append("VT2_OUTSIDE_EXPECTED_RANGE")
+        if out.get("muscular_bmi_flag"):
+            flags.append("MUSCULAR_BMI")
 
         out["clinical_flags"] = flags
         out["test_quality"] = (

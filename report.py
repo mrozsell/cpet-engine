@@ -905,6 +905,13 @@ def generate_observations(ct):
                     if bf >= 55 and _sport_tier in ('competitive_endurance', 'elite_endurance'):
                         add(f'BF peak {bf:.0f}/min — w normie dla poziomu {_tier_pl} (ref: {bf_lo}-{bf_hi}/min). '
                             f'Elitarni sportowcy RR 60-70/min (ACC 2021).', 'neutral', 8)
+                    elif bf > 120:
+                        add(f'BF peak {bf:.0f}/min — EKSTREMALNIE WYSOKA częstość oddechowa (norma sportowa: {bf_lo}-{bf_hi}/min). '
+                            f'Sugeruje strategię rapid-shallow lub zmęczenie mięśni oddechowych przy max. '
+                            f'Trening oddechowy (powolne głębokie oddechy, ćwiczenia przeponowe) może poprawić ekonomię wentylacji.', 'warning', 9)
+                    elif bf > 80:
+                        add(f'BF peak {bf:.0f}/min — wysoka częstość oddechowa (norma: {bf_lo}-{bf_hi}/min). '
+                            f'Rozważ trening oddechowy dla poprawy ekonomii wentylacji.', 'warning', 8)
                     elif bf > bf_hi:
                         add(f'BF peak {bf:.0f}/min — powyżej typowego zakresu ({bf_lo}-{bf_hi}/min) dla poziomu {_tier_pl}. '
                             f'Rozważ ocenę rezerwy oddechowej i mechaniki wentylacji.', 'warning', 8)
@@ -987,6 +994,9 @@ def compute_profile_scores(ct):
 
     vo2_rel = g('VO2max_ml_kg_min')
     vo2_pctile = e15.get('vo2_percentile_approx') or g('vo2_percentile_approx')
+    _bmi_note = e15.get('bmi_note')
+    _muscular_bmi = e15.get('muscular_bmi_flag', False)
+    _allometric = e15.get('vo2_allometric_kg075')
     vo2_pct_pred = g('VO2_pct_predicted') or e15.get('vo2_pct_predicted')
     vo2_class = e15.get('vo2_class_pop', '')
     vo2_class_sport = e15.get('vo2_class_sport_desc', '')
@@ -1044,6 +1054,14 @@ def compute_profile_scores(ct):
     _sport_label_map = {'ELITE': 'elitarny', 'SUB_ELITE': 'subelitarny', 'COMPETITIVE': 'zawodniczy', 'TRAINED': 'wytrenowany', 'RECREATIONAL': 'rekreacyjny', 'UNTRAINED': 'początkujący'}
     _sport_lbl = _sport_label_map.get(sport_class_raw, '')
     _vo2_ctx = f'poziom {_sport_lbl}' if _sport_lbl else f'~{pctile_val:.0f} percentyl populacyjny'
+
+    # ── BMI muscular caveat ──
+    if _muscular_bmi and 'vo2max' in _interp:
+        _bmi_v = e15.get('bmi', 0) or 0
+        _interp['vo2max'] += (
+            f' \u26a0\ufe0f BMI {_bmi_v:.0f} przy wysokim VO\u2082max \u2014 profil mięśniowy. '
+            f'Normy populacyjne mogą zaniżać wartość predykcyjną.'
+        )
 
     # ═══════════════════════════════════════════════════════
     # CATEGORY SCORING (10 categories, each 0-100)
@@ -3377,6 +3395,8 @@ class ReportAdapter:
         vt1_hr = g('VT1_HR_bpm'); vt1_time = g('VT1_Time_s'); vt1_pct = g('VT1_pct_VO2peak')
         vt2_hr = g('VT2_HR_bpm'); vt2_time = g('VT2_Time_s'); vt2_pct = g('VT2_pct_VO2peak')
         vt1_conf = g('VT1_confidence',0); vt2_conf = g('VT2_confidence',0)
+        _e02_flags = e02.get('flags', [])
+        _no_hr = 'NO_HR_DATA' in _e02_flags
         vt1_hr_pct_max = e15.get('vt1_pct_hrmax')
         vt2_hr_pct_max = e15.get('vt2_pct_hrmax')
         vt1_speed = g('VT1_Speed'); vt2_speed = g('VT2_Speed')
@@ -3865,6 +3885,9 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
   <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
     {vt_card('VT1 — Próg tlenowy', vt1_pct, vt1_hr, vt1_time, vt1_speed, vt1_rer_val, vt1_vo2_abs, vt1_hr_pct_max, vt1_conf, _vt1_pct_mas)}
     {vt_card('VT2 — Próg beztlenowy', vt2_pct, vt2_hr, vt2_time, vt2_speed, vt2_rer_val, vt2_vo2_abs, vt2_hr_pct_max, vt2_conf, _vt2_pct_mas)}
+
+        if _no_hr:
+            pc += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;padding:8px;margin:8px 0;font-size:11px;color:#92400e;">⚠️ <b>Brak tętna w danych BxB</b> — pewność progów obniżona (~8%). Progi wyznaczone wyłącznie z gazów oddechowych. Zalecamy powtórzenie testu z pasem HR.</div>'
   </div>
   '''
 
