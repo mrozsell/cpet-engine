@@ -4721,7 +4721,8 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 _cho_rec = 30
             h += f'''<div style="margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:11px;color:#334155;line-height:1.6;">
     \U0001f4a1 <b>Praktycznie:</b> W Z2 spalasz wi\u0119cej t\u0142uszcz\u00f3w, w Z4-Z5 zu\u017cywasz g\u0142\u00f3wnie glikogen.
-    Na d\u0142ugich biegach (>60 min) uzupe\u0142niaj <b>{_cho_rec}\u201360 g CHO/h</b> aby unikn\u0105\u0107 "\u015bciany". Dostosuj do indywidualnej tolerancji \u017co\u0142\u0105dkowej.
+    Na d\u0142ugich biegach (>60 min) uzupe\u0142niaj <b>{_cho_rec}\u201360 g CHO/h</b> aby unikn\u0105\u0107 "\u015bciany". Dostosuj do indywidualnej tolerancji \u017co\u0142\u0105dkowej.<br>
+    <span style="color:#64748b;">FATmax ({_fatmax_gh:.0f} g/h) = szczytowe spalanie t\u0142uszczu przy optymalnej intensywno\u015bci. Warto\u015bci w tabeli to \u015brednie dla ca\u0142ej strefy.</span>
   </div>
 </div>'''
 
