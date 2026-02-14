@@ -13848,9 +13848,83 @@ class CPET_Orchestrator:
         if ctx.get("interpretation"):
             print(f"  📊 CONTEXT: {ctx['interpretation']}")
 
+
+    @staticmethod
+    def extract_spirometry_from_xml(filepath):
+        """Extract spirometry from Cortex MetaSoft XML header (SpreadsheetML)."""
+        import xml.etree.ElementTree as ET
+        result = {}
+        try:
+            tree = ET.parse(filepath)
+            root = tree.getroot()
+            dns = 'urn:schemas-microsoft-com:office:spreadsheet'
+            worksheets = root.findall(f'{{{dns}}}Worksheet')
+            if not worksheets: return result
+            table = worksheets[0].find(f'{{{dns}}}Table')
+            if table is None: return result
+            rows = table.findall(f'{{{dns}}}Row')
+
+            def gv(row):
+                cells = row.findall(f'{{{dns}}}Cell')
+                return [c.find(f'{{{dns}}}Data').text if c.find(f'{{{dns}}}Data') is not None else '' for c in cells]
+
+            def sf(s):
+                try: return float(str(s).replace(',', '.'))
+                except: return None
+
+            spiro_map = {'FVC': 'fvc', 'FEV1': 'fev1', 'FEV1/FVC': 'fev1_fvc', 'FEF25-75': 'fef2575', 'PEF': 'pef'}
+
+            for i in range(min(len(rows), 250)):
+                vals = gv(rows[i])
+                if not vals or not vals[0]: continue
+                pn = str(vals[0]).strip()
+
+                if pn in spiro_map and len(vals) >= 5:
+                    key = spiro_map[pn]
+                    meas = sf(vals[4]) if len(vals) > 4 else None
+                    pct = sf(vals[5]) if len(vals) > 5 else None
+                    zsc = sf(vals[6]) if len(vals) > 6 else None
+                    if meas and meas > 0:
+                        if key == 'fev1':
+                            result['fev1_l'] = meas
+                            if pct: result['fev1_pct_pred'] = pct
+                            if zsc: result['fev1_zscore'] = zsc
+                        elif key == 'fvc':
+                            result['fvc_l'] = meas
+                            if pct: result['fvc_pct_pred'] = pct
+                        elif key == 'fev1_fvc':
+                            result['fev1_fvc_ratio'] = meas
+                            if pct: result['fev1_fvc_pct_pred'] = pct
+                            if zsc: result['fev1_fvc_zscore'] = zsc
+                        elif key == 'fef2575':
+                            result['fef2575_l_s'] = meas
+                            if pct: result['fef2575_pct_pred'] = pct
+                            if zsc: result['fef2575_zscore'] = zsc
+                        elif key == 'pef':
+                            result['pef_l_s'] = meas
+
+                # VC standalone (e.g. "VC", "5,75 L")
+                if pn == 'VC' and len(vals) >= 2:
+                    vc_v = sf(str(vals[1]).replace('L','').replace('l','').strip())
+                    if vc_v and vc_v > 0: result['vc_l'] = vc_v
+
+            if result:
+                print(f"  \U0001f4cb Spirometria z XML: {', '.join(f'{k}={v}' for k,v in sorted(result.items()))}")
+        except:
+            pass
+        return result
+
     def process_file(self, filename: str) -> Dict[str, Any]:
         print(f"\n🚀 START PIPELINE: Analiza pliku '{filename}'")
         self.results = {}
+
+        # ── Auto-extract spirometry from XML if available ──
+        _is_xml = str(filename).lower().endswith('.xml')
+        if _is_xml:
+            _spiro = self.extract_spirometry_from_xml(filename)
+            for _sk, _sv in _spiro.items():
+                if not getattr(self.cfg, _sk, None):  # don't overwrite manual values
+                    setattr(self.cfg, _sk, _sv)
 
         # 0-3 preprocessing
         try:

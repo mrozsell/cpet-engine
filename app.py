@@ -162,6 +162,15 @@ with st.sidebar:
                     _xml_tmp = _xf.name
                 _csv_tmp_from_xml = parse_cortex_xml(_xml_tmp, tempfile.gettempdir())
                 st.success("✅ XML Cortex → CSV skonwertowany automatycznie")
+                # Auto-extract spirometry from XML header
+                try:
+                    from engine_core import CPET_Orchestrator
+                    _spiro_from_xml = CPET_Orchestrator.extract_spirometry_from_xml(_xml_tmp)
+                    if _spiro_from_xml:
+                        st.session_state['_xml_spirometry'] = _spiro_from_xml
+                        st.info(f"📋 Spirometria z XML: FEV1={_spiro_from_xml.get('fev1_l','?')} L, FVC={_spiro_from_xml.get('fvc_l','?')} L")
+                except Exception as _se:
+                    pass  # spirometry extraction is optional
                 os.unlink(_xml_tmp)
             except Exception as e:
                 st.error(f"❌ Błąd parsowania XML: {e}")
@@ -499,6 +508,12 @@ if st.button("🚀 START — Uruchom analizę CPET", type="primary", use_contain
                 config.mss_m_s = mss_input
             if ftp_input > 0:
                 config.ftp_watts = ftp_input
+
+            # Inject spirometry from XML (auto-extracted)
+            _xml_spiro = st.session_state.get('_xml_spirometry', {})
+            for _sk, _sv in _xml_spiro.items():
+                if hasattr(config, _sk):
+                    setattr(config, _sk, _sv)
 
             if protocol in RAW_PROTOCOLS:
                 PROTOCOLS_DB[protocol] = compile_protocol_for_apply(
