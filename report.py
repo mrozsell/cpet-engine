@@ -4731,8 +4731,9 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         if ct.get('test_device', 'treadmill') == 'treadmill' and re_mlkgkm:
             _re_display = f'{_n(re_mlkgkm, ".0f", "—")}'
             _re_unit = 'ml O\u2082/kg/km'
-            _re_rating = 'Świetna' if _econ_score >= 80 else ('Dobra' if _econ_score >= 60 else ('Przeciętna' if _econ_score >= 40 else 'Do poprawy'))
-            _re_color = '#16a34a' if _econ_score >= 70 else ('#eab308' if _econ_score >= 50 else '#ef4444')
+            _re_v_f = float(re_mlkgkm) if re_mlkgkm else 999
+            _re_rating = 'Elitarna' if _re_v_f < 180 else ('Dobra' if _re_v_f < 200 else ('Przeciętna' if _re_v_f < 215 else 'Do poprawy'))
+            _re_color = '#16a34a' if _re_v_f < 200 else ('#eab308' if _re_v_f < 215 else '#ef4444')
             _gain_info = f'<div style="font-size:11px;color:#64748b;margin-top:4px;">GAIN (sprawność mechaniczna): {_n(gain_z, "+.1f", "—")}</div>' if gain_z else ''
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\u2699\ufe0f</span>{esc(_econ_lbl)}</div>
