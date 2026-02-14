@@ -4022,7 +4022,44 @@ table.ztable td{{padding:4px 5px;border-bottom:1px solid #f1f5f9;}}
             pc += row_item('PetO₂ nadir', f'{_n(peto2_nadir,".0f")} mmHg', '', '')
 
         br_pct = g('BR_pct')
-        pc += row_item('BR', f'{_n(br_pct,".0f")}%' if br_pct else '-', '', 'Brak MVV' if not br_pct else '')
+        _br_abs = g('vent_br_abs_lmin')
+        _mvv_v = g('vent_mvv_lmin')
+        _mvv_src = g('vent_mvv_source') or ''
+        _ve_mvv = g('vent_ve_mvv_ratio')
+        _vent_lim_e09 = g('vent_limitation') or ''
+        _spiro_pat = g('vent_spiro_pattern') or ''
+        _vt_fvc = g('vent_vt_fvc_ratio')
+        _small_aw = g('vent_small_airway_flag')
+        _fev1_v = g('spiro_fev1_l')
+        _fvc_v = g('spiro_fvc_l')
+        _fev1_fvc_v = g('spiro_fev1_fvc')
+        _fev1_pct_v = g('spiro_fev1_pct_pred')
+        _fef_z = g('spiro_fef2575_zscore')
+
+        # Spirometry sub-section (if available)
+        if _fev1_v:
+            pc += '<div class="sub-header" style="margin-top:8px;">Spirometria</div>'
+            _fev1_str = f'{_n(_fev1_v,".2f")} L ({_n(_fev1_pct_v,".0f")}% normy)' if _fev1_pct_v else f'{_n(_fev1_v,".2f")} L'
+            pc += row_item('FEV1', _fev1_str, '', '')
+            if _fvc_v:
+                pc += row_item('FVC', f'{_n(_fvc_v,".2f")} L', '', '')
+            if _fev1_fvc_v:
+                pc += row_item('FEV1/FVC', f'{_n(_fev1_fvc_v,".0f")}%', _spiro_pat.upper().replace('_',' ') if _spiro_pat not in ('normal','') else 'Norma', '')
+            if _fef_z is not None:
+                _fef_status = '\u26a0 Obni\u017cone' if float(_fef_z) < -1.64 else 'Norma'
+                pc += row_item('FEF25-75', f'z={_n(_fef_z,".2f")}', _fef_status, 'Ma\u0142e drogi oddechowe' if float(_fef_z) < -1.64 else '')
+
+        # BR display
+        pc += '<div class="sub-header" style="margin-top:8px;">Rezerwa wentylacyjna</div>'
+        if br_pct is not None:
+            _br_color = '#dc2626' if float(br_pct) <= 15 else ('#d97706' if float(br_pct) <= 25 else '#059669')
+            _lim_label = {'definite':'WYCZERPANA','likely':'NISKA','possible':'GRANICZNA','none':'NORMA'}.get(_vent_lim_e09, '')
+            pc += row_item('BR', f'<span style="color:{_br_color};font-weight:700;">{_n(br_pct,".0f")}%</span> ({_n(_br_abs,".0f")} L/min)', _lim_label, f'MVV={_n(_mvv_v,".0f")} [{_mvv_src}]' if _mvv_v else '')
+            if _vt_fvc:
+                _vt_fvc_status = '\u26a0 Wysoki' if float(_vt_fvc) > 0.75 else 'OK'
+                pc += row_item('VT/FVC', f'{float(_vt_fvc):.0%}', _vt_fvc_status, 'Pu\u0142ap mechaniczny VT' if float(_vt_fvc) > 0.75 else '')
+        else:
+            pc += row_item('BR', '-', '', 'Brak spirometrii')
 
         if e07_flags:
             flags_str = ', '.join(e07_flags) if isinstance(e07_flags, list) else str(e07_flags)

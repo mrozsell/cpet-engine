@@ -47,6 +47,21 @@ class AnalysisConfig:
     # --- KINETICS PROTOCOL ---
     kinetics_speeds_kmh: Optional[list] = None  # [speed1, speed2, speed3, speed4] for CWR protocol
 
+    # --- SPIROMETRIA (E09 VentLimitation) ---
+    fev1_l: Optional[float] = None
+    fvc_l: Optional[float] = None
+    fev1_fvc_ratio: Optional[float] = None      # as percentage (e.g. 79)
+    fev1_pct_pred: Optional[float] = None
+    fvc_pct_pred: Optional[float] = None
+    fev1_fvc_pct_pred: Optional[float] = None
+    fev1_zscore: Optional[float] = None
+    fev1_fvc_zscore: Optional[float] = None
+    fef2575_l_s: Optional[float] = None
+    fef2575_pct_pred: Optional[float] = None
+    fef2575_zscore: Optional[float] = None
+    pef_l_s: Optional[float] = None
+    mvv_measured_lmin: Optional[float] = None
+
     @property
     def t_stop_seconds(self) -> Optional[float]:
         return parse_time_str(self.force_manual_t_stop)
@@ -5390,11 +5405,420 @@ class Engine_E08_CardioHRR:
 
 # --- E09: VENT LIMITATION ---
 class Engine_E09_VentLimitation:
+    """
+    E09 v2.0 — Ventilatory Limitation Assessment
+    ═══════════════════════════════════════════════════════════
+    
+    References:
+      ATS/ERS 2003: Breathing Reserve (BR) = (MVV - VEpeak) / MVV × 100
+      Milani 2024 (Eur J Prev Cardiol): FEV1 multiplier 35 (cycle) vs 40-45 (treadmill/athletes)
+      Wasserman 2012: BR < 15% → ventilatory limitation
+      Neder 2023: BR ≤ 11 L/min absolute OR ≤ 15% → limitation
+      ATS/ERS 2022 (Stanojevic): GLI z-scores for spirometry interpretation
+      Pellegrino 2005 (ATS/ERS): FEV1/FVC LLN via z-score < -1.64
+      ERS CPET Task Force 2019: Report VE/MVV at peak, VE/VCO2 slope
+      Guenette 2022 (CHEST): Comprehensive ventilatory assessment framework
+    
+    MVV estimation hierarchy:
+      1. Direct MVV measurement (gold standard, 12-15s maneuver)
+      2. FEV1 × multiplier (35 for cycle, 40 for treadmill — Milani 2024)
+         Athletes on treadmill: use 40 (higher VEpeak reaches true MVV)
+      3. Fallback: None (cannot assess BR without spirometry)
+    
+    Outputs:
+      Breathing reserve (BR%, BR_abs), MVV source/method
+      Spirometry classification (normal/obstructive/restrictive/mixed)
+      Obstruction severity (GLI z-scores)
+      Small airway assessment (FEF25-75)
+      Clinical interpretation & flags
+      Integration with E03 (VE/VCO2 slope) and E07 (breathing pattern)
+    """
+
+    # MVV multipliers by context (Milani 2024 + ATS/ERS consensus)
+    MVV_MULT = {
+        'cycle': 35,
+        'treadmill': 40,      # higher for treadmill (athletes reach higher VE)
+        'treadmill_athlete': 40,
+        'default': 37.5,
+    }
+
+    # Spirometry severity (ATS/ERS 2022, GLI z-scores)
     @staticmethod
-    def run(df_ex):
-        # Wymaga FEV1 od usera (na razie placeholder)
-        # BR = (MVV - VEmax) / MVV
-        return {"br_pct": None}
+    def _spiro_severity_fev1(fev1_pct_pred):
+        """ATS/ERS 2005/2022 severity grading by FEV1 %pred"""
+        if fev1_pct_pred is None: return None
+        if fev1_pct_pred >= 80: return 'normal'
+        if fev1_pct_pred >= 70: return 'mild'
+        if fev1_pct_pred >= 60: return 'moderate'
+        if fev1_pct_pred >= 50: return 'moderately_severe'
+        if fev1_pct_pred >= 35: return 'severe'
+        return 'very_severe'
+
+    @staticmethod
+    def run(df_ex, cfg=None, e01=None, e03=None, e07=None):
+        """
+        Main entry point.
+        
+        Args:
+            df_ex: exercise dataframe
+            cfg: AnalysisConfig with optional spirometry fields
+            e01: E01 results (VE peak, MVV estimate)
+            e03: E03 results (VE/VCO2 slope)
+            e07: E07 results (breathing pattern)
+        """
+        import numpy as np
+        import pandas as pd
+
+        out = {
+            'status': 'OK',
+            'br_pct': None,              # Breathing Reserve %
+            'br_abs_lmin': None,         # BR absolute (L/min)
+            'mvv_lmin': None,            # MVV used
+            'mvv_source': None,          # 'measured' | 'fev1_x_35' | 'fev1_x_40' | 'e01_estimate'
+            've_peak_lmin': None,        # VE at peak exercise
+            've_mvv_ratio': None,        # VE/MVV ratio (= 1 - BR/100)
+            
+            # Spirometry
+            'fev1_l': None,
+            'fvc_l': None,
+            'fev1_fvc_ratio': None,
+            'fev1_pct_pred': None,
+            'fvc_pct_pred': None,
+            'fev1_fvc_pct_pred': None,
+            'fev1_zscore': None,
+            'fev1_fvc_zscore': None,
+            'fef2575_l_s': None,
+            'fef2575_pct_pred': None,
+            'fef2575_zscore': None,
+            'pef_l_s': None,
+            
+            # Classification
+            'spiro_pattern': None,       # 'normal' | 'obstructive' | 'restrictive' | 'mixed' | 'nonspecific'
+            'obstruction_severity': None,
+            'small_airway_flag': None,   # True if FEF25-75 z < -1.64
+            'ventilatory_limitation': None,  # 'none' | 'possible' | 'likely' | 'definite'
+            'limitation_mechanism': None,
+            
+            # Clinical
+            'clinical_interpretation': None,
+            'flags': [],
+            
+            # Integration
+            've_vco2_slope': None,       # from E03
+            'bf_peak': None,
+            'vt_peak_l': None,
+            'vt_fvc_ratio': None,        # VTpeak/FVC — mechanical constraint indicator
+        }
+
+        e01 = e01 or {}
+        e03 = e03 or {}
+        e07 = e07 or {}
+        
+        # ═══════════════════════════════════════════════════
+        # 1. EXTRACT SPIROMETRY FROM CONFIG
+        # ═══════════════════════════════════════════════════
+        spiro = {}
+        if cfg is not None:
+            for attr in ['fev1_l', 'fvc_l', 'fev1_fvc_ratio', 'fev1_pct_pred', 'fvc_pct_pred',
+                         'fev1_fvc_pct_pred', 'fev1_zscore', 'fev1_fvc_zscore',
+                         'fef2575_l_s', 'fef2575_pct_pred', 'fef2575_zscore',
+                         'pef_l_s', 'mvv_measured_lmin']:
+                val = getattr(cfg, attr, None)
+                if val is not None:
+                    try:
+                        val = float(val)
+                        if np.isfinite(val):
+                            spiro[attr] = val
+                    except (ValueError, TypeError):
+                        pass
+
+        fev1 = spiro.get('fev1_l')
+        fvc = spiro.get('fvc_l')
+        fev1_fvc = spiro.get('fev1_fvc_ratio')
+        fev1_pct = spiro.get('fev1_pct_pred')
+        fvc_pct = spiro.get('fvc_pct_pred')
+        fev1_z = spiro.get('fev1_zscore')
+        fev1_fvc_z = spiro.get('fev1_fvc_zscore')
+        fef2575 = spiro.get('fef2575_l_s')
+        fef2575_pct = spiro.get('fef2575_pct_pred')
+        fef2575_z = spiro.get('fef2575_zscore')
+        pef = spiro.get('pef_l_s')
+        mvv_measured = spiro.get('mvv_measured_lmin')
+
+        # Calculate FEV1/FVC if not provided
+        if fev1_fvc is None and fev1 is not None and fvc is not None and fvc > 0:
+            fev1_fvc = (fev1 / fvc) * 100  # as percentage
+
+        # Store in output
+        for key in ['fev1_l', 'fvc_l', 'fev1_fvc_ratio', 'fev1_pct_pred', 'fvc_pct_pred',
+                     'fev1_fvc_pct_pred', 'fev1_zscore', 'fev1_fvc_zscore',
+                     'fef2575_l_s', 'fef2575_pct_pred', 'fef2575_zscore', 'pef_l_s']:
+            val = spiro.get(key) if key != 'fev1_fvc_ratio' else fev1_fvc
+            if val is not None:
+                out[key] = round(val, 3) if isinstance(val, float) else val
+
+        # ═══════════════════════════════════════════════════
+        # 2. VE PEAK FROM DATA
+        # ═══════════════════════════════════════════════════
+        ve_col = None
+        for c in ['VE_Lmin', 'VE_L_min', 'VE', 'Ve', "V'E"]:
+            if c in df_ex.columns:
+                ve_col = c
+                break
+        
+        ve_peak = None
+        if ve_col:
+            ve_series = pd.to_numeric(df_ex[ve_col], errors='coerce').dropna()
+            if len(ve_series) > 5:
+                # Use rolling 30-breath max for robustness
+                ve_peak = float(ve_series.rolling(15, center=True, min_periods=5).mean().max())
+        
+        # Fallback to E01
+        if ve_peak is None:
+            ve_peak = e01.get('ve_peak_lmin') or e01.get('ve_peak')
+            if ve_peak is not None:
+                ve_peak = float(ve_peak)
+        
+        out['ve_peak_lmin'] = round(ve_peak, 1) if ve_peak else None
+
+        # BF peak and VT peak
+        bf_col = None
+        for c in ['BF', 'BF_1_min', 'Bf', 'fR', 'RR']:
+            if c in df_ex.columns: bf_col = c; break
+        vt_col = None
+        for c in ['VT_L', 'VT', 'Vt', 'TV_L']:
+            if c in df_ex.columns: vt_col = c; break
+
+        if bf_col:
+            bf_s = pd.to_numeric(df_ex[bf_col], errors='coerce').dropna()
+            if len(bf_s) > 5:
+                out['bf_peak'] = round(float(bf_s.rolling(10, center=True, min_periods=3).mean().max()), 0)
+        
+        if vt_col:
+            vt_s = pd.to_numeric(df_ex[vt_col], errors='coerce').dropna()
+            if len(vt_s) > 5:
+                out['vt_peak_l'] = round(float(vt_s.rolling(10, center=True, min_periods=3).mean().max()), 2)
+        
+        # VT/FVC ratio — mechanical constraint
+        if out['vt_peak_l'] and fvc and fvc > 0:
+            out['vt_fvc_ratio'] = round(out['vt_peak_l'] / fvc, 2)
+
+        # ═══════════════════════════════════════════════════
+        # 3. MVV DETERMINATION (hierarchy)
+        # ═══════════════════════════════════════════════════
+        mvv = None
+        mvv_source = None
+
+        # Priority 1: Direct MVV measurement
+        if mvv_measured is not None and mvv_measured > 0:
+            mvv = mvv_measured
+            mvv_source = 'measured'
+        
+        # Priority 2: FEV1 × multiplier
+        elif fev1 is not None and fev1 > 0:
+            # Determine modality for multiplier selection
+            modality = 'default'
+            if cfg is not None:
+                mod_str = getattr(cfg, 'modality', '') or ''
+                sport_str = getattr(cfg, 'sport', '') or ''
+                if 'run' in mod_str.lower() or 'treadmill' in mod_str.lower() or 'run' in sport_str.lower():
+                    modality = 'treadmill'
+                elif 'cycl' in mod_str.lower() or 'bike' in mod_str.lower() or 'row' in mod_str.lower():
+                    modality = 'cycle'
+            
+            mult = Engine_E09_VentLimitation.MVV_MULT.get(modality, 37.5)
+            mvv = fev1 * mult
+            mvv_source = f'fev1_x_{int(mult)}'
+        
+        # Priority 3: E01 estimate
+        elif e01.get('mvv_est_lmin') is not None:
+            mvv = float(e01['mvv_est_lmin'])
+            mvv_source = 'e01_estimate'
+
+        out['mvv_lmin'] = round(mvv, 1) if mvv else None
+        out['mvv_source'] = mvv_source
+
+        # ═══════════════════════════════════════════════════
+        # 4. BREATHING RESERVE
+        # ═══════════════════════════════════════════════════
+        flags = []
+
+        if mvv is not None and ve_peak is not None and mvv > 0:
+            br_abs = mvv - ve_peak
+            br_pct = (br_abs / mvv) * 100.0
+            ve_mvv = ve_peak / mvv
+
+            out['br_pct'] = round(br_pct, 1)
+            out['br_abs_lmin'] = round(br_abs, 1)
+            out['ve_mvv_ratio'] = round(ve_mvv, 2)
+            
+            # BR classification (Wasserman/Neder criteria)
+            if br_pct <= 0:
+                out['ventilatory_limitation'] = 'definite'
+                flags.append('BR_EXHAUSTED')
+            elif br_pct <= 15 or br_abs <= 11:
+                out['ventilatory_limitation'] = 'likely'
+                flags.append('BR_LOW')
+                if br_abs <= 11:
+                    flags.append('BR_ABS_LOW_11')
+            elif br_pct <= 25:
+                out['ventilatory_limitation'] = 'possible'
+                flags.append('BR_BORDERLINE')
+            else:
+                out['ventilatory_limitation'] = 'none'
+            
+            # Athletes may have low BR physiologically (Milani 2024)
+            if br_pct <= 15 and ve_peak > 140:
+                flags.append('ATHLETIC_HIGH_VE')
+        else:
+            out['ventilatory_limitation'] = None
+            if fev1 is None and mvv_measured is None:
+                flags.append('NO_SPIROMETRY')
+                out['status'] = 'NO_SPIROMETRY'
+
+        # ═══════════════════════════════════════════════════
+        # 5. SPIROMETRY CLASSIFICATION
+        # ═══════════════════════════════════════════════════
+        if fev1 is not None or fvc is not None:
+            # Obstruction: FEV1/FVC z-score < -1.64 (GLI LLN)
+            # or FEV1/FVC < 70% (fixed ratio, less preferred)
+            has_obstruction = False
+            if fev1_fvc_z is not None:
+                has_obstruction = fev1_fvc_z < -1.64
+            elif fev1_fvc is not None:
+                has_obstruction = fev1_fvc < 70  # fallback to fixed ratio
+            
+            # Restriction: FVC z-score < -1.64 or FVC < 80% pred
+            # (Note: true restriction requires TLC — FVC alone is suggestive)
+            has_restriction = False
+            if fvc_pct is not None:
+                has_restriction = fvc_pct < 80
+            
+            if has_obstruction and has_restriction:
+                out['spiro_pattern'] = 'mixed'
+            elif has_obstruction:
+                out['spiro_pattern'] = 'obstructive'
+            elif has_restriction:
+                out['spiro_pattern'] = 'restrictive_suggestive'
+            elif fev1_pct is not None and fev1_pct < 80 and (fev1_fvc is None or fev1_fvc >= 70):
+                out['spiro_pattern'] = 'nonspecific'
+            else:
+                out['spiro_pattern'] = 'normal'
+            
+            # Severity grading
+            if has_obstruction:
+                out['obstruction_severity'] = Engine_E09_VentLimitation._spiro_severity_fev1(fev1_pct)
+            
+            # Small airway assessment (FEF25-75)
+            if fef2575_z is not None:
+                out['small_airway_flag'] = fef2575_z < -1.64
+                if fef2575_z < -1.64:
+                    flags.append('SMALL_AIRWAY_ABNORMAL')
+                    if fef2575_z < -2.5:
+                        flags.append('SMALL_AIRWAY_SEVERE')
+            elif fef2575_pct is not None:
+                out['small_airway_flag'] = fef2575_pct < 65
+                if fef2575_pct < 65:
+                    flags.append('SMALL_AIRWAY_ABNORMAL')
+
+        # ═══════════════════════════════════════════════════
+        # 6. VT/FVC MECHANICAL CONSTRAINT
+        # ═══════════════════════════════════════════════════
+        vt_fvc = out.get('vt_fvc_ratio')
+        if vt_fvc is not None:
+            if vt_fvc > 0.75:
+                flags.append('VT_FVC_HIGH')  # approaching mechanical ceiling
+            elif vt_fvc > 0.85:
+                flags.append('VT_FVC_CRITICAL')
+
+        # ═══════════════════════════════════════════════════
+        # 7. INTEGRATION WITH E03 & E07
+        # ═══════════════════════════════════════════════════
+        ve_vco2_slope = e03.get('slope_to_vt2') or e03.get('slope_full')
+        if ve_vco2_slope is not None:
+            out['ve_vco2_slope'] = round(float(ve_vco2_slope), 1)
+            # High VE/VCO2 slope + low BR → ventilatory demand exceeds capacity
+            if float(ve_vco2_slope) > 34 and out.get('br_pct') is not None and out['br_pct'] < 20:
+                flags.append('HIGH_DEMAND_LOW_RESERVE')
+
+        # Breathing pattern from E07
+        bf_peak_e07 = e07.get('bf_peak') or out.get('bf_peak')
+        if bf_peak_e07 is not None and float(bf_peak_e07) > 55:
+            flags.append('TACHYPNEA_PEAK')  # rapid shallow breathing
+
+        # ═══════════════════════════════════════════════════
+        # 8. LIMITATION MECHANISM
+        # ═══════════════════════════════════════════════════
+        mechanisms = []
+        if out['ventilatory_limitation'] in ('likely', 'definite'):
+            if out.get('spiro_pattern') in ('obstructive', 'mixed'):
+                mechanisms.append('obstructive_flow_limitation')
+            if vt_fvc is not None and vt_fvc > 0.75:
+                mechanisms.append('mechanical_vt_constraint')
+            if out.get('small_airway_flag'):
+                mechanisms.append('small_airway_dysfunction')
+            if ve_vco2_slope and float(ve_vco2_slope) > 34:
+                mechanisms.append('ventilatory_inefficiency')
+            if not mechanisms:
+                mechanisms.append('ventilatory_demand_exceeds_capacity')
+        
+        out['limitation_mechanism'] = mechanisms if mechanisms else None
+
+        # ═══════════════════════════════════════════════════
+        # 9. CLINICAL INTERPRETATION
+        # ═══════════════════════════════════════════════════
+        lines = []
+        
+        # Spirometry summary
+        sp = out.get('spiro_pattern')
+        if sp == 'normal':
+            lines.append('Spirometria prawidłowa.')
+        elif sp == 'obstructive':
+            sev = out.get('obstruction_severity', '')
+            sev_pl = {'mild':'łagodna','moderate':'umiarkowana','moderately_severe':'umiarkowanie ciężka',
+                       'severe':'ciężka','very_severe':'bardzo ciężka'}.get(sev, sev)
+            lines.append(f'Obturacja {sev_pl} (FEV1/FVC z={fev1_fvc_z:.2f}).' if fev1_fvc_z else f'Obturacja {sev_pl}.')
+        elif sp == 'mixed':
+            lines.append('Zaburzenia mieszane (obturacja + restrykcja).')
+        elif sp == 'restrictive_suggestive':
+            lines.append('Sugestia restrykcji (niska FVC) — wymaga potwierdzenia TLC.')
+        elif sp == 'nonspecific':
+            lines.append('Nieswoiste zaburzenia spirometryczne.')
+        
+        # Small airway
+        if out.get('small_airway_flag') and fef2575_z is not None:
+            lines.append(f'Nieprawidłowy przepływ w małych drogach oddechowych (FEF25-75 z={fef2575_z:.2f}).')
+        
+        # BR summary
+        br = out.get('br_pct')
+        vl = out.get('ventilatory_limitation')
+        if br is not None:
+            src_label = {'measured':'pomiar MVV','fev1_x_35':'FEV1×35','fev1_x_40':'FEV1×40',
+                          'e01_estimate':'estymacja E01'}.get(mvv_source, mvv_source or '?')
+            if vl == 'definite':
+                lines.append(f'Rezerwa wentylacyjna wyczerpana (BR={br:.0f}%, MVV={mvv:.0f} L/min [{src_label}]).')
+            elif vl == 'likely':
+                lines.append(f'Prawdopodobne ograniczenie wentylacyjne (BR={br:.0f}%, MVV={mvv:.0f} [{src_label}]).')
+            elif vl == 'possible':
+                lines.append(f'Graniczne ograniczenie wentylacyjne (BR={br:.0f}%, MVV={mvv:.0f} [{src_label}]).')
+            else:
+                lines.append(f'Brak ograniczenia wentylacyjnego (BR={br:.0f}%, MVV={mvv:.0f} [{src_label}]).')
+        elif out['status'] == 'NO_SPIROMETRY':
+            lines.append('Brak danych spirometrycznych — nie można ocenić rezerwy wentylacyjnej.')
+        
+        # VT/FVC
+        if vt_fvc is not None and vt_fvc > 0.75:
+            lines.append(f'Wysoki VT/FVC ({vt_fvc:.0%}) — zbliżanie do pułapu mechanicznego objętości oddechowej.')
+        
+        # Athletic context
+        if 'ATHLETIC_HIGH_VE' in flags:
+            lines.append('Uwaga: u sportowców z wysoką VEpeak niskie BR może być fizjologiczne (Milani 2024).')
+
+        out['clinical_interpretation'] = ' | '.join(lines)
+        out['flags'] = flags
+
+        return out
+
 
 
 # --- E10: SUBSTRATE (FAT/CHO) ---
@@ -12689,6 +13113,20 @@ class CPET_Orchestrator:
             # wentylacja
             "vent_ve_vco2_slope": self._num(self._pick(e03, ["slope_to_vt2", "slope_full", "slope", "ve_vco2_slope"])),
             "vent_breathing_reserve_pct": self._num(self._pick(e09, ["br_pct", "br_percent", "BR_pct"])),
+            "vent_br_abs_lmin": self._num(e09.get("br_abs_lmin")),
+            "vent_mvv_lmin": self._num(e09.get("mvv_lmin")),
+            "vent_mvv_source": e09.get("mvv_source"),
+            "vent_ve_mvv_ratio": self._num(e09.get("ve_mvv_ratio")),
+            "vent_spiro_pattern": e09.get("spiro_pattern"),
+            "vent_obstruction_severity": e09.get("obstruction_severity"),
+            "vent_small_airway_flag": e09.get("small_airway_flag"),
+            "vent_limitation": e09.get("ventilatory_limitation"),
+            "vent_vt_fvc_ratio": self._num(e09.get("vt_fvc_ratio")),
+            "spiro_fev1_l": self._num(e09.get("fev1_l")),
+            "spiro_fvc_l": self._num(e09.get("fvc_l")),
+            "spiro_fev1_fvc": self._num(e09.get("fev1_fvc_ratio")),
+            "spiro_fev1_pct_pred": self._num(e09.get("fev1_pct_pred")),
+            "spiro_fef2575_zscore": self._num(e09.get("fef2575_zscore")),
 
             # metabolizm
             "met_fatmax_gmin": self._num(self._pick(e10, ["mfo_gmin", "fat_max", "fatmax_g_min"])),
@@ -13514,7 +13952,7 @@ class CPET_Orchestrator:
         self.results["E06"] = self._safe_run("E06", Engine_E06_Gain_v2.run, **_e06_kw)
         self.results["E07"] = self._safe_run("E07", Engine_E07_BreathingPattern.run, df_ex, self.results.get("E02"), self.results.get("E01"), self.cfg)
         self.results["E08"] = self._safe_run("E08", Engine_E08_CardioHRR.run, df_full, t_stop)
-        self.results["E09"] = self._safe_run("E09", Engine_E09_VentLimitation.run, df_ex)
+        self.results["E09"] = self._safe_run("E09", Engine_E09_VentLimitation.run, df_ex=df_ex, cfg=self.cfg, e01=self.results.get("E01",{}), e03=self.results.get("E03",{}), e07=self.results.get("E07",{}))
         # E10 v2: full substrate oxidation profile
         _e10_kw = dict(
             df_ex=df_ex,
