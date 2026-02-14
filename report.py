@@ -4872,7 +4872,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         <span><b>Modalność:</b> {_device_pl}</span>
         <span><b>Czas wysiłku:</b> {dur_str}</span>
         <span><b>HR max:</b> {_n(hr_peak, ".0f", "—")} bpm</span>
-        <span><b>RER peak:</b> {_n(rer_peak, ".2f", "—")} <span style="color:#94a3b8;font-size:10px;">(VCO₂/VO₂; >1.10 = pełne wyczerpanie {"✓" if rer_peak and rer_peak > 1.10 else ""})</span></span>
+        <span><b>RER peak:</b> {_n(rer_peak, ".2f", "—")} <span style="color:#94a3b8;font-size:10px;">(VCO₂/VO₂; >1.10 = pełne wyczerpanie {chr(10004) if rer_peak and float(rer_peak) > 1.10 else ""})</span></span>
       </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;">
         <span><b>VO\u2082max:</b> {_n(vo2_rel)} ml/kg/min ({_n(vo2_abs)} L/min)</span>
