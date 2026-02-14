@@ -1693,11 +1693,11 @@ def compute_profile_scores(ct):
     # ── Recovery ──
     try:
         if _hrr_v >= 40:
-            _interp['recovery'] = f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 tętno spada szybko po wysiłku (HRR\u2081: {_hrr_v:.0f} bpm/min).'
+            _interp['recovery'] = f'Twoja regeneracja jest <b>bardzo dobra</b> \u2014 tętno spada szybko po wysiłku (HRR\u2081: {_hrr_v:.0f} bpm).'
         elif _hrr_v >= 25:
-            _interp['recovery'] = f'Regeneracja na <b>dobrym poziomie</b> (HRR\u2081: {_hrr_v:.0f} bpm/min).'
+            _interp['recovery'] = f'Regeneracja na <b>dobrym poziomie</b> (HRR\u2081: {_hrr_v:.0f} bpm).'
         elif _hrr_v > 0:
-            _interp['recovery'] = f'Regeneracja <b>wymaga poprawy</b> (HRR\u2081: {_hrr_v:.0f} bpm/min). Zadbaj o sen, nawodnienie i trening Z1-Z2.'
+            _interp['recovery'] = f'Regeneracja <b>wymaga poprawy</b> (HRR\u2081: {_hrr_v:.0f} bpm). Zadbaj o sen, nawodnienie i trening Z1-Z2.'
     except:
         pass
 
@@ -1744,8 +1744,11 @@ def compute_profile_scores(ct):
 
     # ── Substrate ──
     try:
-        if _fat_v >= 0.5:
+        _sub_score = _cat.get('substrate', {}).get('score', 50)
+        if _sub_score >= 75:
             _interp['substrate'] = f'Metabolizm tłuszczowy <b>bardzo dobry</b> (FATmax: {_fat_v * 60:.0f} g/h) \u2014 świetna adaptacja do długich dystansów.'
+        elif _sub_score >= 55:
+            _interp['substrate'] = f'Metabolizm tłuszczowy <b>w normie</b> (FATmax: {_fat_v * 60:.0f} g/h). Więcej treningów Z2 pomoże przesunąć crossover w prawo.'
         elif _fat_v > 0 and _cop_v < 40:
             _interp['substrate'] = f'Wczesny crossover CHO/FAT (przy {_cop_v:.0f}% VO\u2082max) \u2014 wi\u0119cej trening\u00f3w Z2 oraz okazjonalne sesje \u201etrain low\u201d (Z1-Z2 na czczo, 1-2\u00d7/tyg.) poprawi\u0105 spalanie t\u0142uszcz\u00f3w. NIE na treningach kluczowych.'
         elif _fat_v > 0 and _fat_v < 0.25:
@@ -4515,7 +4518,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             # Footer legend
             h += '''<div style="margin-top:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:9px;color:#64748b;line-height:1.5;">
   <b>Skala 0\u2013100:</b> system PeakLab \u0142\u0105cz\u0105cy norm\u0119 populacyjn\u0105, sportow\u0105 i fizjologiczn\u0105.<br>
-  <span style="color:#059669;">\u25cf</span>\u00a0>85 = poziom sportowy \u00a0\u00b7\u00a0 <span style="color:#0d9488;">\u25cf</span>\u00a070\u201385 = dobrze \u00a0\u00b7\u00a0 <span style="color:#d97706;">\u25cf</span>\u00a055\u201370 = przeci\u0119tnie \u00a0\u00b7\u00a0 <span style="color:#dc2626;">\u25cf</span>\u00a0<55 = wymaga pracy<br>
+  <span style="color:#059669;">\u25cf</span>\u00a0>85 = poziom sportowy \u00a0\u00b7\u00a0 <span style="color:#0d9488;">\u25cf</span>\u00a070\u201385 = dobrze \u00a0\u00b7\u00a0 <span style="color:#d97706;">\u25cf</span>\u00a055\u201370 = przeci\u0119tnie \u00a0\u00b7\u00a0 <span style="color:#dc2626;">\u25cf</span>\u00a0&lt;55 = wymaga pracy<br>
   <b>\u2191</b> Na g\u00f3rze = najwi\u0119kszy potencja\u0142 poprawy dla Twojego sportu \u00a0\u00b7\u00a0 <b>\u2193</b> Na dole = Twoja najmocniejsza strona<br>
   <span style="color:#94a3b8;">\u2605\u2605\u2605 krytyczne \u00b7 \u2605\u2605\u2606 wa\u017cne \u00b7 \u2605\u2606\u2606 pomocnicze \u2014 waga kategorii dla Twojego sportu</span>
 </div>'''
@@ -4649,7 +4652,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\u26fd</span>Metabolizm lipid\u00f3w</div>
   <div style="margin-bottom:10px;padding:8px 12px;background:#f0fdf4;border-radius:8px;border-left:3px solid #22c55e;font-size:10px;color:#475569;line-height:1.6;">
-    <b>\U0001f4d6 Jak czyta\u0107:</b> <b>Crossover</b> = punkt, w kt\u00f3rym spalanie CHO przekracza FAT \u00b7 <b>FATmax</b> = intensywno\u015b\u0107 z najwy\u017cszym spalaniem t\u0142uszczu w g/h \u00b7 <b>VT1</b> = 1. pr\u00f3g wentylacyjny. Kolejno\u015b\u0107 Crossover < VT1 < FATmax jest fizjologicznie prawid\u0142owa.
+    <b>\U0001f4d6 Jak czyta\u0107:</b> <b>Crossover</b> = punkt, w kt\u00f3rym spalanie CHO przekracza FAT \u00b7 <b>FATmax</b> = intensywno\u015b\u0107 z najwy\u017cszym spalaniem t\u0142uszczu w g/h \u00b7 <b>VT1</b> = 1. pr\u00f3g wentylacyjny. Kolejno\u015b\u0107 Crossover &lt; VT1 &lt; FATmax jest fizjologicznie prawid\u0142owa.
   </div>
   <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
     <div style="flex:1;min-width:160px;padding:12px;background:#fefce8;border-radius:10px;border-left:4px solid #eab308;text-align:center;">
@@ -4841,7 +4844,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
           <span style="color:#059669;">\u25cf</span>\u00a0<b>>85</b> = poziom sportowy \u00a0\u00b7\u00a0
           <span style="color:#0d9488;">\u25cf</span>\u00a0<b>70\u201385</b> = dobrze \u00a0\u00b7\u00a0
           <span style="color:#d97706;">\u25cf</span>\u00a0<b>55\u201370</b> = przeci\u0119tnie \u00a0\u00b7\u00a0
-          <span style="color:#dc2626;">\u25cf</span>\u00a0<b><55</b> = wymaga pracy
+          <span style="color:#dc2626;">\u25cf</span>\u00a0&lt;55 = wymaga pracy
         </div>
       </div>
       <div style="margin-top:12px;">
