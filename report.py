@@ -1281,7 +1281,7 @@ def compute_profile_scores(ct):
             'label': 'Serce (O\u2082 pulse)',
             'icon': '\u2764\ufe0f',
             'limiter_text': f'O\u2082 pulse na {_o2p:.0f}% normy' + (' z p\u0142askim przebiegiem' if 'plateau' in _traj or 'flat' in _traj else '') + ' \u2014 sugeruje mniejsz\u0105 obj\u0119to\u015b\u0107 wyrzutow\u0105 serca. Interwa\u0142y VO\u2082max i trening wytrzyma\u0142o\u015bciowy poprawi\u0105 serce sportowe.',
-            'super_text': f'Silne serce sportowe \u2014 O\u2082 pulse na {_o2p:.0f}% normy. Ka\u017cde uderzenie serca dostarcza du\u017co tlenu do mi\u0119\u015bni.',
+            'super_text': f'Silne serce sportowe \u2014 O\u2082 pulse na {_o2p:.0f}% normy przewidywanej (wg Wassermana, dla Twojego wieku, p\u0142ci i masy cia\u0142a). Ka\u017cde uderzenie serca dostarcza du\u017co tlenu do mi\u0119\u015bni.',
             'tip': 'Interwa\u0142y VO\u2082max + d\u0142ugi trening Z2'
         }
 
@@ -1313,17 +1313,17 @@ def compute_profile_scores(ct):
         elif _hrr_v < 28:
             _hrr_sc *= 0.93   # mild: borderline, protocol-dependent
     if _hrr_v < 20:
-        _rec_lim = f'Regeneracja istotnie osłabiona (HRR₁: {_hrr_v:.0f} bpm/min). Tętno spada bardzo wolno po wysiłku. Zadbaj o sen, nawodnienie, trening Z1-Z2 i periodyzację. Rozważ konsultację.'
+        _rec_lim = f'Regeneracja istotnie osłabiona (HRR₁ / Heart Rate Recovery — spadek tętna w 1. min po wysiłku: {_hrr_v:.0f} bpm). Norma: >25 bpm. Tętno spada bardzo wolno po wysiłku. Zadbaj o sen, nawodnienie, trening Z1-Z2 i periodyzację. Rozważ konsultację.'
     elif _hrr_v < 28:
-        _rec_lim = f'Regeneracja nieco poniżej normy sportowej (HRR₁: {_hrr_v:.0f} bpm/min). Może wynikać z protokołu testu, zmęczenia lub stylu życia. Zadbaj o sen, nawodnienie i periodyzację.'
+        _rec_lim = f'Regeneracja nieco poniżej normy sportowej (HRR₁ / Heart Rate Recovery — spadek tętna w 1. min po wysiłku: {_hrr_v:.0f} bpm). Norma: >25 bpm. Może wynikać z protokołu testu, zmęczenia lub stylu życia. Zadbaj o sen, nawodnienie i periodyzację.'
     else:
-        _rec_lim = f'Regeneracja w normie, ale najniższa z Twoich kategorii (HRR₁: {_hrr_v:.0f} bpm/min). Potencjał poprawy przez lepszą higienę snu i periodyzację.'
+        _rec_lim = f'Regeneracja w normie, ale najniższa z Twoich kategorii (HRR₁ / Heart Rate Recovery — spadek tętna w 1. min po wysiłku: {_hrr_v:.0f} bpm). Norma: >25 bpm, >40 = bardzo dobrze. Potencjał poprawy przez lepszą higienę snu i periodyzację.'
     _cat['recovery'] = {
         'score': _hrr_sc,
         'label': 'Regeneracja',
         'icon': '🔄',
         'limiter_text': _rec_lim,
-        'super_text': f'Błyskawiczna regeneracja (HRR₁: {_hrr_v:.0f} bpm/min) — Twój układ nerwowy i serce szybko wracają do normy po wysiłku.',
+        'super_text': f'Błyskawiczna regeneracja (HRR₁ / Heart Rate Recovery — spadek tętna w 1. min po wysiłku: {_hrr_v:.0f} bpm) — Twój układ nerwowy i serce szybko wracają do normy po wysiłku.',
         'tip': 'Sen + nawodnienie + periodyzacja'
     }
 
@@ -1363,7 +1363,7 @@ def compute_profile_scores(ct):
             'label': 'Spalanie tłuszczów',
             'icon': '🔥',
             'confidence': _fatmax_confidence,
-            'limiter_text': f'Metabolizm tłuszczowy ograniczony{_approx_note} (FATmax: {_fat_v * 60:.0f} g/h' + (f', crossover przy {_cop_v:.0f}% VO₂' if _cop_v < 55 else '') + '). ' + ('Wynik orientacyjny z protokołu ramp — dedykowany test FATmax (stopnie ≥3 min) da dokładniejszy obraz. ' if _fatmax_approx else '') + 'Więcej treningów Z2 i strategia żywieniowa pomogą.',
+            'limiter_text': f'Metabolizm tłuszczowy ograniczony{_approx_note} (FATmax: {_fat_v * 60:.0f} g/h' + (f', crossover przy {_cop_v:.0f}% VO₂' if _cop_v < 55 else '') + '). ' + ('Wynik orientacyjny z protokołu ramp — dedykowany test FATmax (stopnie ≥3 min) da dokładniejszy obraz. ' if _fatmax_approx else '') + 'Więcej treningów Z2 oraz okazjonalne sesje \u201etrain low\u201d (Z1-Z2 na czczo, 1-2\u00d7/tyg.) poprawi\u0105 spalanie. NIE na treningach kluczowych.',
             'super_text': f'Dobry metabolizm tłuszczowy{_approx_note} (FATmax: {_fat_v * 60:.0f} g/h przy {_fat_pct:.0f}% VO₂max) — Twój organizm spala tłuszcze efektywnie.' + (' Wynik orientacyjny — dedykowany test potwierdzi.' if _fatmax_approx else ' Daje przewagę na długich dystansach.'),
             'tip': 'Długie Z2 + periodyzacja węglowodanów'
         }
@@ -1665,7 +1665,7 @@ def compute_profile_scores(ct):
         if _vt2p > 0:
             if _vt2_trap:
                 # Threshold trap: high % but low absolute → misleading
-                _interp['thresholds'] = f'Progi ustawione wysoko procentowo (VT2 przy {_vt2p:.0f}% VO\u2082max), ale przy <b>niskiej wydolności absolutnej</b> ({_vo2_ctx}). Wysoki % niskiego sufitu nie daje przewagi \u2014 priorytetem jest podniesienie VO\u2082max.'
+                _interp['thresholds'] = f'VT2 przy {_vt2p:.0f}% VO\u2082max \u2014 Tw\u00f3j pr\u00f3g kwasowy jest bardzo blisko maksimum (doskonała tolerancja na kwasicę). Ale sam \u201esufit\u201d ({_vo2_ctx}) jest na ni\u017cszym poziomie sportowym. Analogia: silnik 100 KM, kt\u00f3ry wchodzi na czerwone dopiero przy {_vt2p:.0f} KM \u2014 \u015bwietna tolerancja, ale sam silnik m\u00f3g\u0142by by\u0107 wi\u0119kszy. <b>Priorytet: podnie\u015b VO\u2082max</b> \u2014 progi automatycznie p\u00f3jd\u0105 wy\u017cej.'
             elif _vt2p >= 85:
                 _msg = f'Twoje progi są <b>wysoko ustawione</b> (VT2 przy {_vt2p:.0f}% VO\u2082max)'
                 if _gap >= 25:
@@ -1747,7 +1747,7 @@ def compute_profile_scores(ct):
         if _fat_v >= 0.5:
             _interp['substrate'] = f'Metabolizm tłuszczowy <b>bardzo dobry</b> (FATmax: {_fat_v * 60:.0f} g/h) \u2014 świetna adaptacja do długich dystansów.'
         elif _fat_v > 0 and _cop_v < 40:
-            _interp['substrate'] = f'Wczesny crossover CHO/FAT (przy {_cop_v:.0f}% VO\u2082max) \u2014 więcej treningów Z2 i strategia żywieniowa poprawią spalanie tłuszczów.'
+            _interp['substrate'] = f'Wczesny crossover CHO/FAT (przy {_cop_v:.0f}% VO\u2082max) \u2014 wi\u0119cej trening\u00f3w Z2 oraz okazjonalne sesje \u201etrain low\u201d (Z1-Z2 na czczo, 1-2\u00d7/tyg.) poprawi\u0105 spalanie t\u0142uszcz\u00f3w. NIE na treningach kluczowych.'
         elif _fat_v > 0 and _fat_v < 0.25:
             _interp['substrate'] = f'Metabolizm tłuszczowy <b>ograniczony</b> (FATmax: {_fat_v * 60:.0f} g/h). Więcej treningów Z2 i periodyzacja węglowodanów pomogą.'
     except:
@@ -4440,7 +4440,12 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
       </div>
       <div style="font-size:12px;color:#475569;margin-top:6px;">
         Kategoria: <b>{esc(str(vo2_class))}</b> (~{_n(vo2_pctile,".0f","?")} percentyl populacyjny){f' | Sportowo: <b>{esc(vo2_class_sport)}</b>' if vo2_class_sport else ''}
-      </div>
+      </div>{f"""
+      <div style="margin-top:8px;padding:8px 12px;background:#f0f9ff;border-radius:8px;border-left:3px solid #3b82f6;font-size:10px;color:#475569;line-height:1.6;">
+        <b>📊 Populacja:</b> Twój VO₂max jest wyższy niż u {_n(vo2_pctile,'.0f','?')}% osób w Twoim wieku (= {esc(str(vo2_class))}).<br>
+        <b>🏋️ Sport:</b> W porównaniu do aktywnych zawodników {esc(vo2_class_sport.split('(')[-1].rstrip(')')) if vo2_class_sport and '(' in vo2_class_sport else ''} to poziom {esc(vo2_class_sport.split('(')[0].strip().lower()) if vo2_class_sport else ''}.<br>
+        <b>🏆 Wynik ogólny ({_overall:.0f}/100)</b> łączy VO₂max + progi + ekonomię + regenerację — to nie sam VO₂max.
+      </div>""" if vo2_class_sport else ''}
     </div>
   </div>
 </div>'''
@@ -4509,6 +4514,8 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
             # Footer legend
             h += '''<div style="margin-top:8px;padding:6px 10px;background:#f8fafc;border-radius:8px;font-size:9px;color:#64748b;line-height:1.5;">
+  <b>Skala 0\u2013100:</b> system PeakLab \u0142\u0105cz\u0105cy norm\u0119 populacyjn\u0105, sportow\u0105 i fizjologiczn\u0105.<br>
+  <span style="color:#059669;">\u25cf</span>\u00a0>85 = poziom sportowy \u00a0\u00b7\u00a0 <span style="color:#0d9488;">\u25cf</span>\u00a070\u201385 = dobrze \u00a0\u00b7\u00a0 <span style="color:#d97706;">\u25cf</span>\u00a055\u201370 = przeci\u0119tnie \u00a0\u00b7\u00a0 <span style="color:#dc2626;">\u25cf</span>\u00a0<55 = wymaga pracy<br>
   <b>\u2191</b> Na g\u00f3rze = najwi\u0119kszy potencja\u0142 poprawy dla Twojego sportu \u00a0\u00b7\u00a0 <b>\u2193</b> Na dole = Twoja najmocniejsza strona<br>
   <span style="color:#94a3b8;">\u2605\u2605\u2605 krytyczne \u00b7 \u2605\u2605\u2606 wa\u017cne \u00b7 \u2605\u2606\u2606 pomocnicze \u2014 waga kategorii dla Twojego sportu</span>
 </div>'''
@@ -4641,6 +4648,9 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\u26fd</span>Metabolizm lipid\u00f3w</div>
+  <div style="margin-bottom:10px;padding:8px 12px;background:#f0fdf4;border-radius:8px;border-left:3px solid #22c55e;font-size:10px;color:#475569;line-height:1.6;">
+    <b>\U0001f4d6 Jak czyta\u0107:</b> <b>Crossover</b> = punkt, w kt\u00f3rym spalanie CHO przekracza FAT \u00b7 <b>FATmax</b> = intensywno\u015b\u0107 z najwy\u017cszym spalaniem t\u0142uszczu w g/h \u00b7 <b>VT1</b> = 1. pr\u00f3g wentylacyjny. Kolejno\u015b\u0107 Crossover < VT1 < FATmax jest fizjologicznie prawid\u0142owa.
+  </div>
   <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
     <div style="flex:1;min-width:160px;padding:12px;background:#fefce8;border-radius:10px;border-left:4px solid #eab308;text-align:center;">
       <div style="font-size:11px;color:#475569;font-weight:600;">FATmax</div>
@@ -4708,7 +4718,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
                 _cho_rec = 30
             h += f'''<div style="margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;font-size:11px;color:#334155;line-height:1.6;">
     \U0001f4a1 <b>Praktycznie:</b> W Z2 spalasz wi\u0119cej t\u0142uszcz\u00f3w, w Z4-Z5 zu\u017cywasz g\u0142\u00f3wnie glikogen.
-    Na d\u0142ugich biegach (>60 min) uzupe\u0142niaj <b>{_cho_rec}\u201360 g CHO/h</b> aby unikn\u0105\u0107 "\u015bciany".
+    Na d\u0142ugich biegach (>60 min) uzupe\u0142niaj <b>{_cho_rec}\u201360 g CHO/h</b> aby unikn\u0105\u0107 "\u015bciany". Dostosuj do indywidualnej tolerancji \u017co\u0142\u0105dkowej.
   </div>
 </div>'''
 
@@ -4720,10 +4730,10 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
         if ct.get('test_device', 'treadmill') == 'treadmill' and re_mlkgkm:
             _re_display = f'{_n(re_mlkgkm, ".0f", "—")}'
-            _re_unit = 'ml/kg/km'
+            _re_unit = 'ml O\u2082/kg/km'
             _re_rating = 'Świetna' if _econ_score >= 80 else ('Dobra' if _econ_score >= 60 else ('Przeciętna' if _econ_score >= 40 else 'Do poprawy'))
             _re_color = '#16a34a' if _econ_score >= 70 else ('#eab308' if _econ_score >= 50 else '#ef4444')
-            _gain_info = f'<div style="font-size:11px;color:#64748b;margin-top:4px;">GAIN z-score: {_n(gain_z, "+.1f", "—")}</div>' if gain_z else ''
+            _gain_info = f'<div style="font-size:11px;color:#64748b;margin-top:4px;">GAIN (sprawność mechaniczna): {_n(gain_z, "+.1f", "—")}</div>' if gain_z else ''
             h += f'''<div class="card">
   <div class="section-title"><span class="section-icon">\u2699\ufe0f</span>{esc(_econ_lbl)}</div>
   <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
@@ -4749,12 +4759,12 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
   <div class="section-title"><span class="section-icon">\u2699\ufe0f</span>{esc(_econ_lbl)}</div>
   <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
     <div style="text-align:center;padding:12px 20px;background:#f8fafc;border-radius:10px;border-left:4px solid {_gz_color};">
-      <div style="font-size:11px;color:#475569;font-weight:600;">GAIN z-score</div>
+      <div style="font-size:11px;color:#475569;font-weight:600;">GAIN (sprawność mechaniczna)</div>
       <div style="font-size:28px;font-weight:700;color:{_gz_color};">{_gz_v:+.1f}</div>
       <div style="font-size:11px;color:#64748b;">{_gz_rating}</div>
     </div>
     <div style="flex:1;min-width:200px;font-size:13px;color:#334155;line-height:1.7;">
-      {_econ_interp or "GAIN z-score porównuje Twoją efektywność z normą populacyjną."}
+      {_econ_interp or "GAIN (sprawność mechaniczna) porównuje Twoją efektywność z normą populacyjną."}
     </div>
   </div>
 </div>'''
@@ -4778,6 +4788,72 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
 
         h += '</div></div>'
 
+        # ─── 5a. JAK CZYTAĆ TEN RAPORT (legenda, zwijana) ───
+        h += '''<div class="card" style="padding:0;">
+  <details style="cursor:pointer;">
+    <summary style="padding:12px 16px;font-size:13px;font-weight:600;color:#475569;list-style:none;display:flex;align-items:center;gap:8px;">
+      <span style="font-size:14px;">\U0001f4d6</span> Jak czyta\u0107 ten raport
+      <span style="margin-left:auto;font-size:10px;color:#94a3b8;">\u25bc rozwi\u0144</span>
+    </summary>
+    <div style="padding:0 16px 14px;font-size:12px;color:#475569;line-height:1.8;border-top:1px solid #e2e8f0;">
+      <div style="margin-top:10px;">
+        <b style="font-size:13px;">Skr\u00f3ty u\u017cyte w raporcie:</b>
+        <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;">
+          <tr style="border-bottom:1px solid #e2e8f0;">
+            <td style="padding:4px 8px;font-weight:600;width:100px;color:#1e293b;">VO\u2082max</td>
+            <td style="padding:4px 8px;color:#64748b;">Maksymalne poch\u0142anianie tlenu (ml/kg/min). Im wy\u017csze, tym lepsza wydolno\u015b\u0107 tlenowa.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;background:#fafbfc;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">VT1 / VT2</td>
+            <td style="padding:4px 8px;color:#64748b;">Progi wentylacyjne. VT1 = przej\u015bcie z metabolizmu czysto tlenowego. VT2 = pr\u00f3g kwasowy (lactate threshold).</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">HRR\u2081</td>
+            <td style="padding:4px 8px;color:#64748b;">Heart Rate Recovery \u2014 spadek t\u0119tna (bpm) w 1. minucie po zako\u0144czeniu wysi\u0142ku. >25 = dobrze, >40 = bardzo dobrze.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;background:#fafbfc;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">RER</td>
+            <td style="padding:4px 8px;color:#64748b;">Respiratory Exchange Ratio (VCO\u2082/VO\u2082). RER=1.0 \u2192 100% glikogen. RER >1.10 \u2192 pe\u0142ne wyczerpanie (test miarodajny).</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">RE</td>
+            <td style="padding:4px 8px;color:#64748b;">Running Economy \u2014 zu\u017cycie O\u2082 na km biegu (ml O\u2082/kg/km). Im ni\u017csze, tym lepiej. <180 = elitarna.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;background:#fafbfc;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">O\u2082 pulse</td>
+            <td style="padding:4px 8px;color:#64748b;">Obj\u0119to\u015b\u0107 tlenu na jedno uderzenie serca (ml/beat). Miara si\u0142y i wydajno\u015bci serca.</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">FATmax</td>
+            <td style="padding:4px 8px;color:#64748b;">Intensywno\u015b\u0107 z najwy\u017cszym bezwzgl\u0119dnym spalaniem t\u0142uszczu (g/h).</td>
+          </tr>
+          <tr style="border-bottom:1px solid #e2e8f0;background:#fafbfc;">
+            <td style="padding:4px 8px;font-weight:600;color:#1e293b;">Crossover</td>
+            <td style="padding:4px 8px;color:#64748b;">Punkt, w kt\u00f3rym spalanie w\u0119glowodan\u00f3w (CHO) przekracza spalanie t\u0142uszcz\u00f3w (FAT).</td>
+          </tr>
+        </table>
+      </div>
+      <div style="margin-top:12px;">
+        <b style="font-size:13px;">Scoring 0\u2013100:</b>
+        <div style="margin-top:4px;font-size:11px;color:#64748b;line-height:1.7;">
+          Wewn\u0119trzny system PeakLab \u0142\u0105cz\u0105cy normy populacyjne (wiek + p\u0142e\u0107), sportowe (Twoja dyscyplina) i fizjologiczne.<br>
+          <span style="color:#059669;">\u25cf</span>\u00a0<b>>85</b> = poziom sportowy \u00a0\u00b7\u00a0
+          <span style="color:#0d9488;">\u25cf</span>\u00a0<b>70\u201385</b> = dobrze \u00a0\u00b7\u00a0
+          <span style="color:#d97706;">\u25cf</span>\u00a0<b>55\u201370</b> = przeci\u0119tnie \u00a0\u00b7\u00a0
+          <span style="color:#dc2626;">\u25cf</span>\u00a0<b><55</b> = wymaga pracy
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <b style="font-size:13px;">Dwie skale por\u00f3wnawcze:</b>
+        <div style="margin-top:4px;font-size:11px;color:#64748b;line-height:1.7;">
+          <b>Percentyl populacyjny</b> \u2014 Tw\u00f3j wynik na tle og\u00f3lnej populacji (m\u0119\u017cczy\u017ani/kobiety w Twoim wieku).<br>
+          <b>Klasa sportowa</b> \u2014 Tw\u00f3j wynik na tle aktywnych sportowc\u00f3w w Twojej dyscyplinie. Te dwie skale mog\u0105 si\u0119 istotnie r\u00f3\u017cni\u0107.
+        </div>
+      </div>
+    </div>
+  </details>
+</div>'''
+
         # ─── 5b. PROTOKÓŁ (zwijany) ───
         _proto_desc = v('_protocol_description', '')
         if not _proto_desc:
@@ -4796,7 +4872,7 @@ body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f8fa
         <span><b>Modalność:</b> {_device_pl}</span>
         <span><b>Czas wysiłku:</b> {dur_str}</span>
         <span><b>HR max:</b> {_n(hr_peak, ".0f", "—")} bpm</span>
-        <span><b>RER peak:</b> {_n(rer_peak, ".2f", "—")}</span>
+        <span><b>RER peak:</b> {_n(rer_peak, ".2f", "—")} <span style="color:#94a3b8;font-size:10px;">(VCO₂/VO₂; >1.10 = pełne wyczerpanie {"✓" if rer_peak and rer_peak > 1.10 else ""})</span></span>
       </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;">
         <span><b>VO\u2082max:</b> {_n(vo2_rel)} ml/kg/min ({_n(vo2_abs)} L/min)</span>
